@@ -1,0 +1,10 @@
+*.keystore
+*.jks
+*KEYSTORE_B64*
+__pycache__/
+*.pyc
+.buildozer/
+bin/
+dist/
+*.db
+*.sqlite3
