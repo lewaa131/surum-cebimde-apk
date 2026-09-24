@@ -1,1 +1,512 @@
+name: Sürüm Cebimde Android APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: "0"
+
+  # Savannah zaman zaman 502 verdiği için kullandığımız ayna
+  URL_freetype: "https://download-mirror.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz"
+
+  # C/C++ derlemelerini sonraki çalışmalarda hızlandırır
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+
+      # ============================================================
+      # 1. PROJEYI AL
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # 2. PYTHON
+      # ============================================================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ============================================================
+      # 3. JAVA
+      # ============================================================
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+
+      # ============================================================
+      # 4. DERLEME BAGIMLILIKLARI
+      # ============================================================
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            automake \
+            autopoint \
+            gettext \
+            libtool \
+            libltdl-dev \
+            pkg-config \
+            gcc \
+            g++ \
+            make \
+            patch \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libtinfo6 \
+            cmake \
+            libffi-dev \
+            libssl-dev \
+            ccache \
+            lbzip2 \
+            wget \
+            curl
+
+
+      # ============================================================
+      # 5. BUILDOZER
+      # ============================================================
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "Cython==0.29.34" legacy-cgi
+          # Pin the exact Buildozer revision that already produced the working Android build.
+          python -m pip install "git+https://github.com/kivy/buildozer.git@a153097b3c534bea8a17da2abf1369d67c8cbfcb"
+
+      - name: Restore permanent signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo 'Add ANDROID_DEBUG_KEYSTORE_B64 in Settings > Secrets and variables > Actions. See GUNCELLEME-KURULUM.md.'
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+
+      - name: Check app before packaging
+        run: |
+          python -m pip install "Pillow>=10,<12" certifi
+          python -m compileall -q -x '(\.buildozer|\.venv|\.git)' .
+          if [ -d tests ]; then
+            python -m unittest discover -s tests -q
+          else
+            echo 'No tests directory in repository; skipping unit tests.'
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import android_hook
+
+          spec = Path('buildozer.spec').read_text(encoding='utf-8')
+          required = [
+              'android.api = 36',
+              'android.minapi = 24',
+              'android.ndk = 28c',
+              'android.archs = arm64-v8a',
+              'android.accept_sdk_license = True',
+              'android.add_src = android/src',
+              'p4a.branch = develop',
+              'p4a.commit = fe51f56',
+              'p4a.hook = %(source.dir)s/android_hook.py',
+              'icon.filename = assets/icon.png',
+              'presplash.filename = assets/splash.png',
+          ]
+          missing = [line for line in required if line not in spec]
+          if missing:
+              raise SystemExit('Missing Android build settings: ' + ', '.join(missing))
+
+          for path in [
+              Path('android/src/org/surutakip/reminders/ReminderReceiver.java'),
+              Path('android/src/org/surutakip/reminders/DailySummary.java'),
+              Path('android/src/org/surutakip/mobile/CameraProvider.java'),
+              Path('android/src/org/surutakip/mobile/SafeArea.java'),
+              Path('android/src/org/surutakip/mobile/BackNavigation.java'),
+              Path('android/manifest_application.xml'),
+              Path('android_hook.py'),
+          ]:
+              if not path.is_file():
+                  raise SystemExit(f'Missing Android source: {path}')
+
+          fragment = Path('android/manifest_application.xml').read_text(encoding='utf-8')
+          if 'ReminderReceiver' not in fragment or 'android:exported="true"' not in fragment:
+              raise SystemExit('ReminderReceiver manifest configuration is invalid')
+          if 'CameraProvider' not in fragment or 'android:exported="false"' not in fragment:
+              raise SystemExit('CameraProvider manifest configuration is invalid')
+          if 'org.surutakip.surum.camera' not in fragment:
+              raise SystemExit('CameraProvider authority does not match package id')
+
+          for path, square in [(Path('assets/icon.png'), True), (Path('assets/splash.png'), False)]:
+              if not path.is_file():
+                  raise SystemExit(f'Missing image: {path}')
+              with Image.open(path) as image:
+                  image.verify()
+              with Image.open(path) as image:
+                  if square and image.width != image.height:
+                      raise SystemExit('Android icon must be square')
+                  if image.width < 512 or image.height < 512:
+                      raise SystemExit(f'Image too small: {path} {image.size}')
+
+          print('Android preflight OK')
+          PY
+
+          # Native daily-summary logic is Android-independent; compile it now
+          # so a Java syntax/regression error fails in seconds instead of after Gradle.
+          if [ -f tests/java/DailySummaryTest.java ]; then
+            rm -rf /tmp/surum-java-test
+            mkdir -p /tmp/surum-java-test
+            javac -d /tmp/surum-java-test \
+              android/src/org/surutakip/reminders/DailySummary.java \
+              tests/java/DailySummaryTest.java
+            java -cp /tmp/surum-java-test DailySummaryTest
+          fi
+
+
+      # ============================================================
+      # 6. CACHE ANAHTARINI OLUSTUR
+      #
+      # Sadece native derlemeyi etkileyen ayarlari kullaniyoruz.
+      # Manifest / uygulama kodu degisince cache çöpe gitmeyecek.
+      # ============================================================
+      - name: Calculate Android build cache key
+        id: build-cache-key
+        shell: bash
+        run: |
+          echo "Native Android build configuration:"
+
+          grep -E \
+          '^(requirements|android\.api|android\.minapi|android\.ndk|android\.archs|p4a\.branch|p4a\.commit)[[:space:]]*=' \
+          buildozer.spec | tee /tmp/android-native-config.txt || true
+
+          HASH=$(sha256sum /tmp/android-native-config.txt | cut -d' ' -f1)
+
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "Native cache hash: $HASH"
+
+
+      # ============================================================
+      # 7. ANDROID SDK / NDK / INDIRILEN PAKETLER CACHE
+      # ============================================================
+      - name: Restore Android toolchain cache
+        id: toolchain-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.buildozer/android/packages
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/android-ndk-r28c
+            ~/.buildozer/android/platform/apache-ant-1.9.4
+            ~/.cache/pip
+          key: surum-toolchain-ubuntu24-api36-ndk28c-v1
+
+      - name: Restore Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: surum-gradle-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            surum-gradle-${{ runner.os }}-
+
+
+      # ============================================================
+      # 8. PYTHON / KIVY / SDL2 NATIVE BUILD CACHE
+      #
+      # Her run benzersiz key ile kaydedilir.
+      # Restore-keys önceki en yakin build'i getirir.
+      # ============================================================
+      - name: Restore native Android build cache
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .buildozer/android/platform/python-for-android
+            .buildozer/android/platform/build-arm64-v8a/build
+            .ccache
+          key: surum-native-${{ runner.os }}-${{ steps.build-cache-key.outputs.hash }}-${{ github.run_id }}
+          restore-keys: |
+            surum-native-${{ runner.os }}-${{ steps.build-cache-key.outputs.hash }}-
+
+
+      # ============================================================
+      # 9. CONFIG KONTROL
+      # ============================================================
+      - name: Check Android configuration
+        run: |
+          echo "=========================================="
+          echo "ANDROID CONFIGURATION"
+          echo "=========================================="
+
+          grep "android.api" buildozer.spec || true
+          grep "android.minapi" buildozer.spec || true
+          grep "android.ndk" buildozer.spec || true
+          grep "android.archs" buildozer.spec || true
+          grep "android.accept_sdk_license" buildozer.spec || true
+
+          echo ""
+          grep "p4a.branch" buildozer.spec || true
+          grep "p4a.commit" buildozer.spec || true
+
+
+      # ============================================================
+      # 10. MIN API 24'U GARANTIYE AL
+      # ============================================================
+      - name: Force Android minimum API 24
+        run: |
+          if grep -q "^android.minapi" buildozer.spec; then
+            sed -i \
+              's/^android.minapi[[:space:]]*=.*$/android.minapi = 24/' \
+              buildozer.spec
+          else
+            echo "android.minapi = 24" >> buildozer.spec
+          fi
+
+          echo "Current min API:"
+          grep "android.minapi" buildozer.spec
+
+
+      # ============================================================
+      # 11. SADECE SON APK/GRADLE CIKTISINI TEMIZLE
+      #
+      # Python/Kivy native build klasorlerini SILMIYORUZ.
+      # Boylece cache'den devam edebiliyor.
+      # ============================================================
+      - name: Clean generated APK project only
+        run: |
+          echo "Cleaning generated Android application files..."
+
+          rm -rf bin
+          rm -rf dist
+          rm -rf .buildozer/android/app
+
+          rm -rf \
+            .buildozer/android/platform/build-arm64-v8a/dists/surum
+
+          mkdir -p .ccache
+
+          echo ""
+          echo "CCache:"
+          ccache --version
+          ccache --zero-stats || true
+
+
+      # ============================================================
+      # 12. APK DERLE
+      # ============================================================
+      - name: Build debug APK
+        id: apk-build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+
+          buildozer -v android debug \
+            2>&1 | tee build.log
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          echo "build_exit=$BUILD_EXIT" >> "$GITHUB_OUTPUT"
+
+          exit $BUILD_EXIT
+
+
+      # ============================================================
+      # 13. CCACHE ISTATISTIKLERI
+      # ============================================================
+      - name: Show compiler cache statistics
+        if: always()
+        run: |
+          ccache --show-stats || true
+
+
+      # ============================================================
+      # 14. TOOLCHAIN CACHE'I HATA OLSA BILE KAYDET
+      # ============================================================
+      - name: Save Android toolchain cache
+        if: always() && !cancelled() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.buildozer/android/packages
+            ~/.buildozer/android/platform/android-sdk
+            ~/.buildozer/android/platform/android-ndk-r28c
+            ~/.buildozer/android/platform/apache-ant-1.9.4
+            ~/.cache/pip
+          key: surum-toolchain-ubuntu24-api36-ndk28c-v1
+
+      - name: Save Gradle cache
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: surum-gradle-${{ runner.os }}-${{ github.run_id }}
+
+
+      # ============================================================
+      # 15. NATIVE BUILD CACHE'I HATA OLSA BILE KAYDET
+      #
+      # Bu kisim en önemlisi.
+      # Kivy/Python/SDL2 derlenmisse sonraki run tekrar kullanabilir.
+      # ============================================================
+      - name: Save native Android build cache
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .buildozer/android/platform/python-for-android
+            .buildozer/android/platform/build-arm64-v8a/build
+            .ccache
+          key: surum-native-${{ runner.os }}-${{ steps.build-cache-key.outputs.hash }}-${{ github.run_id }}
+
+
+      # ============================================================
+      # 16. BUILD LOGUNU HER DURUMDA YUKLE
+      # ============================================================
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+
+      # ============================================================
+      # 17. BUILD BASARISIZSA JOB'U KIRMIZI YAP
+      # ============================================================
+      - name: Check build result
+        if: always()
+        shell: bash
+        run: |
+          EXIT_CODE="${{ steps.apk-build.outputs.build_exit }}"
+
+          if [ -z "$EXIT_CODE" ]; then
+            echo "APK build did not return an exit code."
+            exit 1
+          fi
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Android APK build failed with exit code $EXIT_CODE."
+            exit "$EXIT_CODE"
+          fi
+
+          echo "Android APK build successful."
+
+      - name: Verify generated Android manifest
+        run: |
+          MANIFEST=.buildozer/android/platform/build-arm64-v8a/dists/surum/src/main/AndroidManifest.xml
+          test -f "$MANIFEST"
+          grep -F 'org.surutakip.reminders.ReminderReceiver' "$MANIFEST"
+          grep -F 'org.surutakip.mobile.CameraProvider' "$MANIFEST"
+          grep -F 'org.surutakip.surum.camera' "$MANIFEST"
+          grep -F 'org.surutakip.mobile.UpdateProvider' "$MANIFEST"
+          grep -F 'android.permission.REQUEST_INSTALL_PACKAGES' "$MANIFEST"
+          grep -F 'android:enableOnBackInvokedCallback="true"' "$MANIFEST"
+          grep -F 'android:windowSoftInputMode="adjustNothing"' "$MANIFEST"
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          ANDROID='http://schemas.android.com/apk/res/android'
+          p=Path('.buildozer/android/platform/build-arm64-v8a/dists/surum/src/main/AndroidManifest.xml')
+          app=ET.parse(p).getroot().find('application')
+          if app is None: raise SystemExit('Generated manifest has no application')
+          receivers=[e for e in app.findall('receiver') if e.get(f'{{{ANDROID}}}name')=='org.surutakip.reminders.ReminderReceiver']
+          providers=[e for e in app.findall('provider') if e.get(f'{{{ANDROID}}}name')=='org.surutakip.mobile.CameraProvider']
+          if len(receivers)!=1 or receivers[0].get(f'{{{ANDROID}}}exported')!='true':
+              raise SystemExit('ReminderReceiver missing or exported incorrectly')
+          if len(providers)!=1 or providers[0].get(f'{{{ANDROID}}}exported')!='false':
+              raise SystemExit('CameraProvider missing or exported incorrectly')
+          print('Generated Android manifest OK')
+          PY
+
+
+      # ============================================================
+      # 18. APK'YI TOPLA
+      # ============================================================
+      - name: Collect APK
+        id: release-files
+        run: |
+          python tools/prepare_update.py
+
+          echo "=========================================="
+          echo "APK CREATED"
+          echo "=========================================="
+
+          ls -lh dist/
+
+
+      # ============================================================
+      # 19. APK ARTIFACT
+      # ============================================================
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: surum-cebimde-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish app update
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-files.outputs.tag }}
+        run: |
+          VISIBILITY=$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)
+          if [ "$VISIBILITY" != 'public' ]; then
+            echo 'In-app downloads need public Releases. Do not embed a GitHub token in the APK.'
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'This version already exists. Increase both version and android.numeric_version for a new release.'
+            exit 1
+          fi
+          LATEST=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq '[.[] | select(.draft == false and .prerelease == false)][0].tag_name // ""')
+          python - "$LATEST" "$RELEASE_TAG" <<'PY'
+          import sys
+          from update_service import version
+          if sys.argv[1] and version(sys.argv[1].removeprefix('v')) >= version(sys.argv[2].removeprefix('v')):
+              raise SystemExit('Release version must increase beyond the latest published version')
+          PY
+          gh release create "$RELEASE_TAG" dist/surum-cebimde.apk dist/update.json --target "$GITHUB_SHA" --title "Sürüm Cebimde $RELEASE_TAG" --notes-file RELEASE-NOTES.md --draft
+          gh release edit "$RELEASE_TAG" --draft=false --latest
