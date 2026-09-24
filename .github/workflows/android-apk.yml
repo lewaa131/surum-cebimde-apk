@@ -1,160 +1,96 @@
-          if grep -q "^android.minapi" buildozer.spec; then
-            sed -i \
-              's/^android.minapi[[:space:]]*=.*$/android.minapi = 24/' \
-              buildozer.spec
-          else
-            echo "android.minapi = 24" >> buildozer.spec
-          fi
+name: Sürüm Cebimde Android APK
 
-          echo "Current min API:"
-          grep "android.minapi" buildozer.spec
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: "0"
+
+  # Savannah zaman zaman 502 verdiği için kullandığımız ayna
+  URL_freetype: "https://download-mirror.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz"
+
+  # C/C++ derlemelerini sonraki çalışmalarda hızlandırır
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+
+      # ============================================================
+      # 1. PROJEYI AL
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
 
 
       # ============================================================
-      # 11. SADECE SON APK/GRADLE CIKTISINI TEMIZLE
-      #
-      # Python/Kivy native build klasorlerini SILMIYORUZ.
-      # Boylece cache'den devam edebiliyor.
+      # 2. PYTHON
       # ============================================================
-      - name: Clean generated APK project only
-        run: |
-          echo "Cleaning generated Android application files..."
-
-          rm -rf bin
-          rm -rf dist
-          rm -rf .buildozer/android/app
-
-          rm -rf \
-            .buildozer/android/platform/build-arm64-v8a/dists/surum
-
-          mkdir -p .ccache
-
-          echo ""
-          echo "CCache:"
-          ccache --version
-          ccache --zero-stats || true
-
-
-      # ============================================================
-      # 12. APK DERLE
-      # ============================================================
-      - name: Build debug APK
-        id: apk-build
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          set -o pipefail
-
-          buildozer -v android debug \
-            2>&1 | tee build.log
-
-          BUILD_EXIT=${PIPESTATUS[0]}
-
-          echo "build_exit=$BUILD_EXIT" >> "$GITHUB_OUTPUT"
-
-          exit $BUILD_EXIT
-
-
-      # ============================================================
-      # 13. CCACHE ISTATISTIKLERI
-      # ============================================================
-      - name: Show compiler cache statistics
-        if: always()
-        run: |
-          ccache --show-stats || true
-
-
-      # ============================================================
-      # 14. TOOLCHAIN CACHE'I HATA OLSA BILE KAYDET
-      # ============================================================
-      - name: Save Android toolchain cache
-        if: always() && !cancelled() && steps.toolchain-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: |
-            ~/.buildozer/android/packages
-            ~/.buildozer/android/platform/android-sdk
-            ~/.buildozer/android/platform/android-ndk-r28c
-            ~/.buildozer/android/platform/apache-ant-1.9.4
-            ~/.cache/pip
-          key: surum-toolchain-ubuntu24-api36-ndk28c-v1
+          python-version: "3.12"
 
-      - name: Save Gradle cache
-        if: always() && !cancelled()
-        continue-on-error: true
-        uses: actions/cache/save@v4
+
+      # ============================================================
+      # 3. JAVA
+      # ============================================================
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: surum-gradle-${{ runner.os }}-${{ github.run_id }}
+          distribution: temurin
+          java-version: "17"
 
 
       # ============================================================
-      # 15. NATIVE BUILD CACHE'I HATA OLSA BILE KAYDET
-      #
-      # Bu kisim en önemlisi.
-      # Kivy/Python/SDL2 derlenmisse sonraki run tekrar kullanabilir.
+      # 4. DERLEME BAGIMLILIKLARI
       # ============================================================
-      - name: Save native Android build cache
-        if: always() && !cancelled()
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .buildozer/android/platform/python-for-android
-            .buildozer/android/platform/build-arm64-v8a/build
-            .ccache
-          key: surum-native-${{ runner.os }}-${{ steps.build-cache-key.outputs.hash }}-${{ github.run_id }}
-
-
-      # ============================================================
-      # 16. BUILD LOGUNU HER DURUMDA YUKLE
-      # ============================================================
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-build-log
-          path: build.log
-          if-no-files-found: warn
-          retention-days: 30
-
-
-      # ============================================================
-      # 17. BUILD BASARISIZSA JOB'U KIRMIZI YAP
-      # ============================================================
-      - name: Check build result
-        if: always()
-        shell: bash
+      - name: Install Linux dependencies
         run: |
-          EXIT_CODE="${{ steps.apk-build.outputs.build_exit }}"
+          sudo apt-get update
 
-          if [ -z "$EXIT_CODE" ]; then
-            echo "APK build did not return an exit code."
-            exit 1
-          fi
+          sudo apt-get install -y \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            automake \
+            autopoint \
+            gettext \
+            libtool \
+            libltdl-dev \
+            pkg-config \
+            gcc \
+            g++ \
+            make \
+            patch \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libtinfo6 \
+            cmake \
+            libffi-dev \
+            libssl-dev \
+            ccache \
+            lbzip2 \
+            wget \
+            curl
 
-          if [ "$EXIT_CODE" != "0" ]; then
-            echo "Android APK build failed with exit code $EXIT_CODE."
-            exit "$EXIT_CODE"
-          fi
 
-          echo "Android APK build successful."
-
-      - name: Verify generated Android manifest
-        run: |
-          MANIFEST=.buildozer/android/platform/build-arm64-v8a/dists/surum/src/main/AndroidManifest.xml
-          test -f "$MANIFEST"
-          grep -F 'org.surutakip.reminders.ReminderReceiver' "$MANIFEST"
-          grep -F 'org.surutakip.mobile.CameraProvider' "$MANIFEST"
-          grep -F 'org.surutakip.surum.camera' "$MANIFEST"
-          grep -F 'org.surutakip.mobile.UpdateProvider' "$MANIFEST"
-          grep -F 'android.permission.REQUEST_INSTALL_PACKAGES' "$MANIFEST"
-          grep -F 'android:enableOnBackInvokedCallback="true"' "$MANIFEST"
-          grep -F 'android:windowSoftInputMode="adjustNothing"' "$MANIFEST"
-          python - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
+      # ============================================================
+      # 5. BUILDOZER
+      # ============================================================
+      - name: Install Buildozer
