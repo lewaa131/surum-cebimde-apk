@@ -1,4 +1,4 @@
-__version__ = "0.13.4"
+__version__ = "0.13.5"
 
 from kivy.config import Config
 
@@ -465,7 +465,7 @@ class SuruApp(App):
             cycle=snapshot(cow,self.cycle)
             badges=[cycle['category']]
             if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'):
-                badges.append(cow['state'])
+                badges.append('Sağmal (tahmini)' if cow.get('_milking_estimated') else cow['state'])
             if can_reproduce(cow) and cow['pregnant']: badges.append('Gebe')
             elif can_reproduce(cow) and cow['insemination']: badges.append('Tohumlandı')
             text=' · '.join(badges)+'\n'+(due_text(cow) if due_date(cow) else cycle['stage'])
@@ -678,6 +678,10 @@ class SuruApp(App):
             (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '')+
             (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else '')))
         identity.add_widget(label('Doğum · '+human(cow['born']),24,13))
+        if cow.get('_milking_estimated'):
+            identity.add_widget(paragraph('Sağmal tahmini · yaş ve tohumlama kaydına göre.'))
+        elif cow.get('_first_calving_pending'):
+            identity.add_widget(paragraph('Genç yaşta tohumlandı; ilk doğum onayına kadar sağmal sayılmaz.'))
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
         edits=BoxLayout(size_hint_y=None,height=dp(44),spacing=dp(8))
         edits.add_widget(button('Düzenle',lambda *_:self.care(cow_id),44,variant='secondary'))

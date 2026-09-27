@@ -43,6 +43,14 @@ class CycleStore:
         elif cow['calved_before']==-1 and cow['state'] in ('Düve','Buzağı'):
             cow['calved_before']=0
         # Age and pregnancy alone never establish a previous calving.
+        cow['_first_insemination']=''
+        if cow['calved_before']==-1 and cow['state']=='Diğer':
+            cow['_first_insemination']=self.db.execute('SELECT MIN(day) FROM inseminations WHERE cow_id=?',(cow['id'],)).fetchone()[0] or ''
+        from lactation import infer_lactation
+        inference=infer_lactation(cow)
+        cow['_milking_estimated']=inference['estimated']
+        cow['_first_calving_pending']=inference['first_calving_pending']
+        if cow['_milking_estimated']: cow['state']='Sağmal'
         if cow['sex']=='Dişi' and cow['calved_before']==1 and cow['state'] not in ('Kuru dönemde','Sağılmıyor'):
             cow['state']='Sağmal'
         return cow

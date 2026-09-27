@@ -36,24 +36,26 @@ class AutoMilkingTests(TestCase):
         self.assertFalse(MilkStore(self.herd.db).can_enter(self.herd.get(i),'2026-09-25'))
         self.assertNotIn('dry',{t['kind'] for t in tasks_for(self.herd.all(),DEFAULT_CYCLE,date(2026,9,25))})
 
-    def test_unknown_adult_never_implies_milking(self):
+    def test_mature_unknown_fallback_does_not_store_birth_fact(self):
         i=self.herd.register(self.info)
         cow=self.herd.get(i)
-        self.assertEqual(cow['state'],'Diğer')
+        self.assertEqual(cow['state'],'Sağmal')
+        self.assertTrue(cow['_milking_estimated'])
         self.assertEqual(cow['calved_before'],-1)
         self.assertEqual(cow['last_birth'],'')
         self.herd.update_reproduction(i,'01.01.2026',True,283)
-        self.assertEqual(self.herd.get(i)['state'],'Diğer')
-        self.herd.update_care(i,'Pamuk','Diğer','Not değişti')
+        self.assertTrue(self.herd.get(i)['_milking_estimated'])
+        self.herd.update_care(i,'Pamuk','Sağmal','Not değişti')
         self.herd.close(); self.herd=Herd(self.path)
-        self.assertEqual(self.herd.get(i)['state'],'Diğer')
+        self.assertTrue(self.herd.get(i)['_milking_estimated'])
+        self.assertEqual(self.herd.get(i)['calved_before'],-1)
         self.herd.set_birth_history(i,False)
         self.assertEqual(self.herd.get(i)['state'],'Düve')
 
     def test_previous_age_fallback_records_recover_without_migration(self):
         # 0.13.2 only derived the mistaken state in memory; these are its stored values.
         for n in range(2):
-            self.herd.register(self.info|dict(tag=f'TR{n:012d}'),
+            self.herd.register(self.info|dict(tag=f'TR{n:012d}',born='2024-09-01'),
                 initial=dict(reproduction='Gebe',insemination='01.01.2026'))
         self.herd.close(); self.herd=Herd(self.path)
         cows=self.herd.all()
@@ -63,7 +65,7 @@ class AutoMilkingTests(TestCase):
         self.assertTrue(all(not c['last_birth'] for c in cows))
 
     def test_first_pregnancy_only_becomes_milking_after_birth(self):
-        i=self.herd.register(self.info,initial=dict(reproduction='Gebe',insemination='01.01.2026'))
+        i=self.herd.register(self.info|dict(born='2024-09-01'),initial=dict(reproduction='Gebe',insemination='01.01.2026'))
         cow=self.herd.get(i)
         milk=MilkStore(self.herd.db)
         self.assertFalse(milk.can_enter(cow,'2021-12-31'))
@@ -74,6 +76,8 @@ class AutoMilkingTests(TestCase):
         self.assertEqual(self.herd.get(i)['state'],'Sağmal')
         self.assertTrue(milk.can_enter(self.herd.get(i),'2026-09-25'))
         self.assertEqual(self.herd.get(i)['calved_before'],1)
+        self.assertFalse(self.herd.get(i)['_first_calving_pending'])
+        self.assertFalse(self.herd.get(i)['_milking_estimated'])
 
     def test_known_mother_without_birth_date_still_milks(self):
         i=self.herd.register(self.info,initial=dict(reproduction='Gebe',insemination='01.01.2026'))
@@ -82,6 +86,21 @@ class AutoMilkingTests(TestCase):
         self.assertEqual(cow['state'],'Sağmal')
         self.assertEqual(cow['last_birth'],'')
         self.assertTrue(cow['pregnant'])
+
+    def test_early_failed_service_keeps_first_birth_protection(self):
+        i=self.herd.register(self.info|dict(born='2023-09-01'),
+            initial=dict(reproduction='Tohumlandı',insemination='01.01.2025'))
+        self.herd.pregnancy_result(i,False,'2025-01-01')
+        self.assertTrue(self.herd.get(i)['_first_calving_pending'])
+        self.herd.record_insemination(i,'01.01.2026',DEFAULT_CYCLE)
+        self.herd.pregnancy_result(i,True,'2026-01-01')
+        self.herd.close(); self.herd=Herd(self.path)
+        cow=self.herd.get(i)
+        self.assertTrue(cow['_first_calving_pending'])
+        self.assertFalse(cow['_milking_estimated'])
+        self.assertNotEqual(cow['state'],'Sağmal')
+        self.herd.record_birth(i,'25.09.2026',calves=[])
+        self.assertEqual(self.herd.get(i)['state'],'Sağmal')
 
     def test_linked_calf_proves_birth_without_inventing_date(self):
         i=self.herd.register(self.info)
