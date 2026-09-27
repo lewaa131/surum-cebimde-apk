@@ -5,21 +5,63 @@ from kivy.utils import platform
 from mobile_ui import big_button
 from settings_ui import text
 from update_service import check, download
+from update_prompt import should_offer, remind_later
+import time
+
+
+def offer_pending(app,*_):
+    app.update_offer_event=None
+    result=getattr(app,'pending_update',None)
+    if app.closed or not result: return
+    if not should_offer(app.user_data_dir,result['version']):
+        app.pending_update=None
+        return
+    if getattr(app,'backgrounded',False): return
+    if app.editor or app.popup_stack or getattr(app,'update_busy',False):
+        app.update_offer_event=Clock.schedule_once(lambda _:offer_pending(app),15)
+        return
+    app.pending_update=None
+    popup,body,error,actions=app.dialog('Yeni sürüm var')
+    body.add_widget(text(f'Sürüm {result["version"]} hazır. Şimdi güncellemek ister misin?'))
+    body.add_widget(text('Daha sonra seçersen yarın tekrar hatırlatılır.',13))
+    # app.dialog already supplies one dismissal button; reuse it.
+    later=actions.children[0]
+    later.text='Daha sonra'
+    accepted=False
+    def dismissed(*_):
+        if not accepted:
+            try: remind_later(app.user_data_dir,result['version'])
+            except OSError: pass
+    popup.bind(on_dismiss=dismissed)
+    def accept(*_):
+        nonlocal accepted
+        if accepted: return
+        accepted=True
+        popup.dismiss()
+        Clock.schedule_once(lambda _:open_updates(app,result,start_immediately=True) if not app.closed else None,.1)
+    actions.add_widget(big_button('Güncelle',accept,48))
+    return popup
 
 
 def check_on_start(app):
-    if platform!='android' or app.closed: return
+    if platform!='android' or app.closed or getattr(app,'backgrounded',False): return
+    if getattr(app,'pending_update',None) and not getattr(app,'update_offer_event',None): offer_pending(app)
+    if getattr(app,'update_check_busy',False) or time.monotonic()<getattr(app,'update_check_after',0): return
+    app.update_check_busy=True
+    app.update_check_after=time.monotonic()+3600
     def worker():
         try: result=check(app.version)
         except Exception: return  # Offline startup must remain usable.
+        finally: app.update_check_busy=False
         def ready(*_):
-            if result and not app.closed and not app.editor:
-                open_updates(app,result)
+            if result and not app.closed:
+                app.pending_update=result
+                if not getattr(app,'update_offer_event',None): offer_pending(app)
         Clock.schedule_once(ready,0)
     Thread(target=worker,daemon=True).start()
 
 
-def open_updates(app,available=None):
+def open_updates(app,available=None,start_immediately=False):
     if getattr(app,'update_busy',False):
         app.notice('Önceki indirme kapanıyor; biraz sonra tekrar dene.'); return
     popup,body,error,actions=app.dialog('Uygulama güncellemesi')
@@ -87,5 +129,7 @@ def open_updates(app,available=None):
             except Exception: deliver(failed,'Kontrol yapılamadı. İnternet bağlantını kontrol et.')
         Thread(target=worker,daemon=True).start()
     control=big_button('Kontrol et',start_check,48); actions.add_widget(control)
-    if available: found(available)
+    if available:
+        found(available)
+        if start_immediately: start_download()
     else: start_check()

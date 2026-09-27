@@ -1,4 +1,4 @@
-__version__ = "0.13.3"
+__version__ = "0.13.4"
 
 from kivy.config import Config
 
@@ -980,6 +980,7 @@ class SuruApp(App):
         actions.add_widget(button('Çek ve kullan',capture))
 
     def on_pause(self):
+        self.backgrounded=True
         for root in Window.children:
             for widget in root.walk():
                 if isinstance(widget,TouchScrollView): widget.cancel_gesture()
@@ -996,15 +997,22 @@ class SuruApp(App):
                 Logger.exception('Surum: Güvenli ekran alanı uygulanamadı')
         from update_ui import check_on_start
         Clock.schedule_once(lambda _:check_on_start(self),4)
+        self.update_check_event=Clock.schedule_interval(lambda _:check_on_start(self),900)
         if notification_plan(self.herd.all(),self.cycle):
             Clock.schedule_once(lambda _:self.request_notifications(),1)
 
     def on_resume(self):
+        self.backgrounded=False
+        from update_ui import check_on_start
+        Clock.schedule_once(lambda _:check_on_start(self),1)
         self.sync_reminders(force=True)
         self.tick()
 
     def on_stop(self):
         self.closed = True
+        for name in ('update_check_event','update_offer_event'):
+            event=getattr(self,name,None)
+            if event: event.cancel()
         if hasattr(self,'day_refresh'): self.day_refresh.stop()
         if self.camera_popup: self.camera_popup.dismiss()
         self.herd.close()
