@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, timedelta
 from cycle_store import CycleStore
 
-STATES = ('Sağmal', 'Kuru dönemde', 'Düve', 'Buzağı', 'Diğer')
+STATES = ('Sağmal', 'Kuru dönemde', 'Sağılmıyor', 'Düve', 'Buzağı', 'Diğer')
 
 def can_reproduce(cow):
     return cow.get('record_status', 'Aktif') == 'Aktif' and cow.get('sex') == 'Dişi' and cow.get('registry_status', '') in ('', 'Canlı')

@@ -15,7 +15,7 @@ def validate(info,initial=None,today=None):
     reproduction=initial.get('reproduction','Bilmiyorum')
     birth=initial.get('last_birth','').strip()
     ins=initial.get('insemination','').strip()
-    if state not in ('Diğer','Sağmal','Kuru dönemde','Düve'): raise ValueError('Geçerli durum seç.')
+    if state not in ('Diğer','Sağmal','Kuru dönemde','Sağılmıyor','Düve'): raise ValueError('Geçerli durum seç.')
     if reproduction not in ('Bilmiyorum','Gebe değil','Gebe','Tohumlandı'): raise ValueError('Geçerli üreme durumu seç.')
     if not eligible(info,today) and (state!='Diğer' or reproduction!='Bilmiyorum' or birth or ins):
         raise ValueError('Bu bölüm 14 ay ve üzeri dişiler içindir.')
@@ -28,5 +28,6 @@ def validate(info,initial=None,today=None):
     if birth and ins and birth>=ins: raise ValueError('Son doğum, tohumlamadan önce olmalı.')
     if reproduction=='Tohumlandı' and not ins: raise ValueError('Tohumlandı seçtiysen kontrol takvimi için tohumlama tarihini yaz veya şimdilik Bilmiyorum seç.')
     if ins and reproduction not in ('Gebe','Tohumlandı'): raise ValueError('Tohumlama tarihi için Gebe veya Tohumlandı seç.')
+    if birth and state not in ('Kuru dönemde','Sağılmıyor'): state='Sağmal'
     return dict(state=state,pregnant=int(reproduction=='Gebe'),insemination=ins.isoformat() if ins else '',
         last_birth=birth.isoformat() if birth else '',calved_before=1 if birth or state in ('Sağmal','Kuru dönemde') else 0 if state=='Düve' else -1)

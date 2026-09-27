@@ -40,6 +40,9 @@ class CycleStore:
             cow['calved_before']=1
         elif cow['calved_before']==-1 and cow['state'] in ('Düve','Buzağı'):
             cow['calved_before']=0
+        # Lactation follows confirmed calving, never a birthday or a due date.
+        if cow['sex']=='Dişi' and cow['calved_before']==1 and cow['state'] not in ('Kuru dönemde','Sağılmıyor'):
+            cow['state']='Sağmal'
         return cow
 
     def _insert_calf(self, mother, day, sex):
@@ -83,7 +86,7 @@ class CycleStore:
             raise ValueError('Son doğum zaten kayıtlı; yeni doğum için Doğdu işlemini kullan.')
         with self.db:
             self.db.execute('UPDATE cows SET calved_before=?,state=? WHERE id=?',
-                (int(calved),'Sağmal' if calved and cow['state']!='Kuru dönemde' else 'Kuru dönemde' if calved else 'Düve',cow_id))
+                (int(calved),(cow['state'] if cow['state'] in ('Kuru dönemde','Sağılmıyor') else 'Sağmal') if calved else 'Düve',cow_id))
             if calved and parsed:
                 self.db.execute("INSERT INTO events(cow_id,kind,day) VALUES (?,'Doğum yaptı',?)",(cow_id,parsed.isoformat()))
 

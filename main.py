@@ -1,4 +1,4 @@
-__version__ = "0.13.0"
+__version__ = "0.13.1"
 
 from kivy.config import Config
 
@@ -444,7 +444,7 @@ class SuruApp(App):
         for cow in rows:
             cycle=snapshot(cow,self.cycle)
             badges=[cycle['category']]
-            if cow['state'] in ('Sağmal','Kuru dönemde'): badges.append(cow['state'])
+            if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'): badges.append(cow['state'])
             if can_reproduce(cow) and cow['pregnant']: badges.append('Gebe')
             elif can_reproduce(cow) and cow['insemination']: badges.append('Tohumlandı')
             text=' · '.join(badges)+'\n'+(due_text(cow) if due_date(cow) else cycle['stage'])
@@ -595,7 +595,7 @@ class SuruApp(App):
             setup_fields={}
             if eligible(info):
                 body.add_widget(paragraph('Mevcut durum · isteğe bağlı'))
-                status=Spinner(text='Bilmiyorum',values=('Bilmiyorum','Sağmal','Kuru dönemde','Düve'),size_hint_y=None,height=dp(48))
+                status=Spinner(text='Bilmiyorum',values=('Bilmiyorum','Sağmal','Kuru dönemde','Sağılmıyor','Düve'),size_hint_y=None,height=dp(48))
                 body.add_widget(label('Sağım / gelişim durumu',32,14)); body.add_widget(status)
                 repro=Spinner(text='Bilmiyorum',values=('Bilmiyorum','Gebe değil','Gebe','Tohumlandı'),size_hint_y=None,height=dp(48))
                 body.add_widget(label('Üreme durumu',32,14)); body.add_widget(repro)
@@ -654,7 +654,7 @@ class SuruApp(App):
         identity.add_widget(row)
         identity.add_widget(paragraph(cow['sex']+' · '+(cow['breed'] or 'Irk bilinmiyor')))
         identity.add_widget(paragraph(category(cow)+' · '+age_text(date.fromisoformat(cow['born']))+
-            (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde') else '')+
+            (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '')+
             (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else '')))
         identity.add_widget(label('Doğum · '+human(cow['born']),24,13))
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
@@ -681,7 +681,7 @@ class SuruApp(App):
         detail(care,'Cinsiyet · Irk',f'{cow["sex"]} · {cow["breed"] or "Irk bilinmiyor"}')
         detail(care,'Doğum tarihi',human(cow['born']))
         detail(care,'Tür',cow['species'] or 'Bilinmiyor')
-        detail(care,'Durum',category(cow)+(' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde') else '') + (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else ''))
+        detail(care,'Durum',category(cow)+(' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '') + (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else ''))
         if cow['record_status'] != 'Aktif': detail(care,'Arşiv durumu',cow['record_status'])
         detail(care,'Notlar',cow['notes'] or 'Not yok.')
         from milk_ui import milk_history
@@ -812,8 +812,9 @@ class SuruApp(App):
         name = self.field(body,'İsim (isteğe bağlı)',cow['name'])
         values = STATES if cow['sex']=='Dişi' else ('Buzağı','Diğer')
         body.add_widget(paragraph('Yaş grubu otomatik: '+category(cow)))
+        body.add_widget(paragraph('Doğumdan sonra sağmal, kuruya ayırınca kuruda olur. İstisna varsa Sağılmıyor seç.'))
         body.add_widget(label('Bakım durumu',32,14,INK))
-        selected=cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde') else category(cow)
+        selected=cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else category(cow)
         state = Spinner(text=selected if selected in values else 'Diğer',values=values,size_hint_y=None,height=dp(64),font_size=dp(18),sync_height=True); body.add_widget(state)
         notes = self.field(body,'Bakım ve sağlık notları',cow['notes'],True)
         def save(*_):
