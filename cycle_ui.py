@@ -117,9 +117,26 @@ def inseminate(app,cow_id):
     return popup
 
 
+def milking_status(app,cow_id):
+    cow=app.herd.get(cow_id)
+    popup,body,error,actions=app.dialog('Sağım durumu')
+    body.add_widget(text('Şu an: '+cow['state']))
+    body.add_widget(text('Gerçek sağım durumunu seç; gebelik kaydı değişmez.'))
+    notes=app.field(body,'Bakım ve sağlık notları · isteğe bağlı',cow['notes'],True)
+    def save(milking):
+        if getattr(popup,'_saved',False): return
+        try: app.herd.set_milking(cow_id,milking,notes.text)
+        except (ValueError,sqlite3.Error) as exc: error.text=str(exc); return
+        popup._saved=True
+        finish(app,popup,cow_id)
+    body.add_widget(big_button('Sağılıyor · kaydet',lambda *_:save(True),48))
+    body.add_widget(big_button('Sağılmıyor · kaydet',lambda *_:save(False),48,'secondary'))
+    return popup
+
+
 def result(app,cow_id,heat=False):
     cow=app.herd.get(cow_id)
-    popup,body,error,actions=app.dialog('Kızgınlık gözlemi' if heat else 'Gebelik sonucu')
+    popup,body,error,actions=app.dialog('Kızgınlık gözlemi' if heat else 'Tohumlama tuttu mu?')
     body.add_widget(text('Gözlemi kaydet; gebelik sonucu kontrol sonrası belirlenir.' if heat else 'Veteriner kontrolünde belirlenen sonucu seç.'))
     def save(positive):
         if getattr(popup,'_saved',False): return
@@ -130,8 +147,8 @@ def result(app,cow_id,heat=False):
         except (ValueError,sqlite3.Error) as exc: error.text=str(exc); return
         popup._saved=True
         finish(app,popup,cow_id)
-    body.add_widget(big_button('Kızgınlık var' if heat else 'Gebe',lambda *_:save(True),48))
-    body.add_widget(big_button('Gözlenmedi' if heat else 'Gebe değil',lambda *_:save(False),48,'secondary'))
+    body.add_widget(big_button('Kızgınlık var' if heat else 'Tuttu · gebe',lambda *_:save(True),48))
+    body.add_widget(big_button('Gözlenmedi' if heat else 'Tutmadı · gebe değil',lambda *_:save(False),48,'secondary'))
     return popup
 
 

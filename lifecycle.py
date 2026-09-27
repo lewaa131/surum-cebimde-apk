@@ -10,7 +10,6 @@ def category(cow, today=None):
     known=int(cow.get('calved_before',-1))
     if cow.get('last_birth'): known=1
     if cow.get('sex')=='Dişi' and known==1: return 'İnek'
-    if cow.get('_milking_estimated') and months>=24: return 'İnek'
     if months<6: return 'Buzağı'
     if months<12: return 'Dana'
     if cow.get('sex')=='Erkek': return 'Tosun' if months<24 else 'Boğa'
@@ -71,9 +70,7 @@ def snapshot(cow, settings, today=None):
         task('recovery','Yeniden tohumlama öncesi kontrol',date.fromisoformat(loss_day),loss_day,
              'Kontrol edildi','Kontrol sonrası yeniden tohumlama değerlendirmesine dön.')
         return result
-    if cow.get('_milking_estimated'):
-        result['stage']='Sağmal · yaşa göre tahmini'
-    elif known==-1 and (today-born).days>=365:
+    if known==-1 and (today-born).days>=365:
         result['stage']='Durum belirtilmedi'
     elif known==1 and not last:
         result['stage']='Kuruda' if cow['state']=='Kuru dönemde' else 'Sağmal' if cow['state']=='Sağmal' else 'İnek'

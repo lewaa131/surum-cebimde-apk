@@ -42,10 +42,7 @@ class CycleStore:
             cow['calved_before']=1
         elif cow['calved_before']==-1 and cow['state'] in ('Düve','Buzağı'):
             cow['calved_before']=0
-        from lactation import estimate_milking
-        cow['_milking_estimated']=estimate_milking(cow)
-        # The age fallback changes display/eligibility, not confirmed birth history.
-        if cow['_milking_estimated']: cow['state']='Sağmal'
+        # Age and pregnancy alone never establish a previous calving.
         if cow['sex']=='Dişi' and cow['calved_before']==1 and cow['state'] not in ('Kuru dönemde','Sağılmıyor'):
             cow['state']='Sağmal'
         return cow

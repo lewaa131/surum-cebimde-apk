@@ -1,4 +1,4 @@
-__version__ = "0.13.2"
+__version__ = "0.13.3"
 
 from kivy.config import Config
 
@@ -465,7 +465,7 @@ class SuruApp(App):
             cycle=snapshot(cow,self.cycle)
             badges=[cycle['category']]
             if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'):
-                badges.append('Sağmal (tahmini)' if cow.get('_milking_estimated') else cow['state'])
+                badges.append(cow['state'])
             if can_reproduce(cow) and cow['pregnant']: badges.append('Gebe')
             elif can_reproduce(cow) and cow['insemination']: badges.append('Tohumlandı')
             text=' · '.join(badges)+'\n'+(due_text(cow) if due_date(cow) else cycle['stage'])
@@ -678,8 +678,6 @@ class SuruApp(App):
             (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '')+
             (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else '')))
         identity.add_widget(label('Doğum · '+human(cow['born']),24,13))
-        if cow.get('_milking_estimated'):
-            identity.add_widget(paragraph('Sağmal · 24 ay üzeri olduğu için tahmini; son doğum tarihi gerekmez.'))
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
         edits=BoxLayout(size_hint_y=None,height=dp(44),spacing=dp(8))
         edits.add_widget(button('Düzenle',lambda *_:self.care(cow_id),44,variant='secondary'))
@@ -698,6 +696,11 @@ class SuruApp(App):
             quick.add_widget(button('Gebelik kaydı' if cow['pregnant'] else 'Tohumlama',lambda *_:self.reproduction(cow_id),48,variant='secondary'))
         body.add_widget(quick)
         from cycle_ui import profile_cycle
+        if can_reproduce(cow):
+            from cycle_ui import result, milking_status
+            if cow['insemination'] and not cow['pregnant']:
+                body.add_widget(button('Tohumlama tuttu mu?',lambda *_:result(self,cow_id),48))
+            body.add_widget(button('Sağım durumu · değiştir',lambda *_:milking_status(self,cow_id),48,variant='secondary'))
         profile_cycle(self,body,cow,compact=True)
 
         care = detail_page(body,'Bilgiler ve notlar')

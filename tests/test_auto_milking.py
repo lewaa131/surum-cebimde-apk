@@ -36,42 +36,52 @@ class AutoMilkingTests(TestCase):
         self.assertFalse(MilkStore(self.herd.db).can_enter(self.herd.get(i),'2026-09-25'))
         self.assertNotIn('dry',{t['kind'] for t in tasks_for(self.herd.all(),DEFAULT_CYCLE,date(2026,9,25))})
 
-    def test_unknown_adult_is_estimated_without_birth_event(self):
+    def test_unknown_adult_never_implies_milking(self):
         i=self.herd.register(self.info)
         cow=self.herd.get(i)
-        self.assertEqual(cow['state'],'Sağmal')
-        self.assertTrue(cow['_milking_estimated'])
+        self.assertEqual(cow['state'],'Diğer')
         self.assertEqual(cow['calved_before'],-1)
         self.assertEqual(cow['last_birth'],'')
         self.herd.update_reproduction(i,'01.01.2026',True,283)
-        self.assertTrue(self.herd.get(i)['_milking_estimated'])
-        self.herd.update_care(i,'Pamuk','Sağmal','Not değişti')
-        self.assertTrue(self.herd.get(i)['_milking_estimated'])
+        self.assertEqual(self.herd.get(i)['state'],'Diğer')
+        self.herd.update_care(i,'Pamuk','Diğer','Not değişti')
+        self.herd.close(); self.herd=Herd(self.path)
+        self.assertEqual(self.herd.get(i)['state'],'Diğer')
         self.herd.set_birth_history(i,False)
         self.assertEqual(self.herd.get(i)['state'],'Düve')
 
-    def test_age_estimate_boundary_and_exceptions(self):
-        from lactation import estimate_milking
-        cow=self.info|dict(born='2024-09-27',state='Diğer',calved_before=-1)
-        self.assertFalse(estimate_milking(cow,date(2026,9,26)))
-        self.assertTrue(estimate_milking(cow,date(2026,9,27)))
-        for changes in (dict(state='Kuru dönemde'),dict(state='Sağılmıyor'),dict(state='Düve'),
-                        dict(calved_before=0),dict(sex='Erkek'),dict(record_status='Satıldı')):
-            self.assertFalse(estimate_milking(cow|changes,date(2026,9,27)))
+    def test_previous_age_fallback_records_recover_without_migration(self):
+        # 0.13.2 only derived the mistaken state in memory; these are its stored values.
+        for n in range(2):
+            self.herd.register(self.info|dict(tag=f'TR{n:012d}'),
+                initial=dict(reproduction='Gebe',insemination='01.01.2026'))
+        self.herd.close(); self.herd=Herd(self.path)
+        cows=self.herd.all()
+        self.assertEqual(sum(c['state']=='Sağmal' for c in cows),0)
+        self.assertEqual(sum(c['pregnant'] for c in cows),2)
+        self.assertTrue(all(c['insemination']=='2026-01-01' for c in cows))
+        self.assertTrue(all(not c['last_birth'] for c in cows))
 
-    def test_estimated_milk_and_dry_cycle(self):
+    def test_first_pregnancy_only_becomes_milking_after_birth(self):
         i=self.herd.register(self.info,initial=dict(reproduction='Gebe',insemination='01.01.2026'))
         cow=self.herd.get(i)
-        self.assertTrue(cow['_milking_estimated'])
         milk=MilkStore(self.herd.db)
         self.assertFalse(milk.can_enter(cow,'2021-12-31'))
-        self.assertTrue(milk.can_enter(cow,'2026-09-25'))
-        self.assertIn('dry',{t['kind'] for t in tasks_for([cow],DEFAULT_CYCLE,date(2026,8,1),True)})
-        self.herd.mark_dry(i,'01.09.2026')
-        self.assertFalse(milk.can_enter(self.herd.get(i),'2026-09-25'))
+        self.assertFalse(milk.can_enter(cow,'2026-09-25'))
+        self.assertNotIn('dry',{t['kind'] for t in tasks_for([cow],DEFAULT_CYCLE,date(2026,8,1),True)})
+        with self.assertRaises(ValueError): self.herd.mark_dry(i,'01.09.2026')
         self.herd.record_birth(i,'25.09.2026',calves=[])
         self.assertEqual(self.herd.get(i)['state'],'Sağmal')
-        self.assertFalse(self.herd.get(i)['_milking_estimated'])
+        self.assertTrue(milk.can_enter(self.herd.get(i),'2026-09-25'))
+        self.assertEqual(self.herd.get(i)['calved_before'],1)
+
+    def test_known_mother_without_birth_date_still_milks(self):
+        i=self.herd.register(self.info,initial=dict(reproduction='Gebe',insemination='01.01.2026'))
+        self.herd.set_birth_history(i,True)
+        cow=self.herd.get(i)
+        self.assertEqual(cow['state'],'Sağmal')
+        self.assertEqual(cow['last_birth'],'')
+        self.assertTrue(cow['pregnant'])
 
     def test_linked_calf_proves_birth_without_inventing_date(self):
         i=self.herd.register(self.info)
@@ -116,3 +126,41 @@ class AutoMilkingTests(TestCase):
         self.herd.set_birth_history(i,True)
         self.assertEqual(self.herd.get(i)['state'],'Sağılmıyor')
         self.assertEqual(self.herd.get(i)['calved_before'],1)
+
+    def test_manual_pause_resume_keeps_pregnancy_and_notes(self):
+        i=self.herd.register(self.info,initial=dict(state='Sağmal',reproduction='Gebe',insemination='01.01.2026'))
+        milk=MilkStore(self.herd.db)
+        self.herd.set_milking(i,False,'Tedavi nedeniyle ara verildi',date(2026,9,20))
+        cow=self.herd.get(i)
+        self.assertEqual(cow['state'],'Sağılmıyor')
+        self.assertEqual(cow['notes'],'Tedavi nedeniyle ara verildi')
+        self.assertTrue(cow['pregnant'])
+        self.assertEqual(cow['insemination'],'2026-01-01')
+        self.assertFalse(milk.can_enter(cow,'2026-09-21'))
+        self.herd.set_milking(i,True,today=date(2026,9,22))
+        cow=self.herd.get(i)
+        self.assertTrue(cow['pregnant'])
+        self.assertEqual(cow['notes'],'Tedavi nedeniyle ara verildi')
+        self.assertFalse(milk.can_enter(cow,'2026-09-21'))
+        self.assertTrue(milk.can_enter(cow,'2026-09-22'))
+
+    def test_manual_resume_after_dry_updates_milk_eligibility(self):
+        i=self.herd.register(self.info,initial=dict(state='Sağmal',reproduction='Gebe',insemination='01.01.2026'))
+        self.herd.mark_dry(i,'01.09.2026')
+        self.herd.set_milking(i,True,today=date(2026,9,20))
+        milk=MilkStore(self.herd.db)
+        self.assertFalse(milk.can_enter(self.herd.get(i),'2026-09-10'))
+        self.assertTrue(milk.can_enter(self.herd.get(i),'2026-09-20'))
+
+    def test_manual_milking_rejects_known_heifer(self):
+        i=self.herd.register(self.info,initial=dict(state='Düve',reproduction='Gebe',insemination='01.01.2026'))
+        with self.assertRaises(ValueError): self.herd.set_milking(i,True)
+        self.assertEqual(self.herd.get(i)['state'],'Düve')
+        self.assertTrue(self.herd.get(i)['pregnant'])
+
+    def test_result_does_not_change_paused_milking(self):
+        i=self.herd.register(self.info,initial=dict(state='Sağmal',reproduction='Tohumlandı',insemination='01.01.2026'))
+        self.herd.set_milking(i,False)
+        self.herd.pregnancy_result(i,True,'2026-01-01')
+        self.assertTrue(self.herd.get(i)['pregnant'])
+        self.assertEqual(self.herd.get(i)['state'],'Sağılmıyor')

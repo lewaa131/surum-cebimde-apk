@@ -245,6 +245,24 @@ class Herd(CycleStore):
         with self.db:
             self.db.execute('UPDATE cows SET photo_path=? WHERE id=?', (str(path), cow_id))
 
+    def set_milking(self,cow_id,milking,notes=None,today=None):
+        cow=self.get(cow_id)
+        if not can_reproduce(cow): raise ValueError('Sağım durumu yalnızca aktif dişilerde değiştirilebilir.')
+        if milking and cow['calved_before']==0:
+            raise ValueError('Düve henüz doğurmadı; doğum gerçekleştiyse önce Doğum yaptı işlemini kaydet.')
+        day=(today or date.today()).isoformat()
+        if day<cow['born']: raise ValueError('İşlem hayvanın doğumundan önce olamaz.')
+        from corrections import snapshot,record
+        before=snapshot(self.db,cow_id)
+        state='Sağmal' if milking else 'Sağılmıyor'
+        with self.db:
+            self.db.execute('UPDATE cows SET state=?,notes=?,calved_before=? WHERE id=?',
+                (state,cow['notes'] if notes is None else notes.strip(),1 if milking else cow['calved_before'],cow_id))
+            if cow['state']!=state:
+                self.db.execute('INSERT INTO events(cow_id,kind,day) VALUES (?,?,?)',
+                    (cow_id,'Sağım başladı' if milking else 'Sağım durdu',day))
+            record(self.db,cow_id,'Sağım durumu',before)
+
     def update_care(self, cow_id, name, state, notes):
         cow = self.get(cow_id)
         if state not in STATES:
@@ -253,9 +271,6 @@ class Herd(CycleStore):
             raise ValueError('Bu durum yalnızca cinsiyeti dişi olarak doğrulanan hayvanlar için kullanılabilir.')
         if (cow['calved_before']==1 or cow['last_birth'] or self.children(cow_id)) and state in ('Düve','Buzağı'):
             raise ValueError('Doğum yapmış hayvan düve veya buzağı olamaz.')
-        if cow.get('_milking_estimated') and state=='Sağmal':
-            # Saving a name or note must not turn the age estimate into a fact.
-            state='Diğer'
         with self.db:
             self.db.execute('UPDATE cows SET name=?,state=?,notes=? WHERE id=?', (name.strip(),state,notes.strip(),cow_id))
             if state in ('Sağmal','Kuru dönemde','Düve','Buzağı'):
@@ -289,7 +304,6 @@ class Herd(CycleStore):
         if not 250 <= duration <= 310:
             raise ValueError('Hesaplama süresini 250–310 gün arasında girin.')
         state=values['state']
-        if values.get('_milking_estimated') and state=='Sağmal': state='Diğer'
         row = (tag, values['name'].strip(), born.isoformat(), state, int(pregnant), ins.isoformat() if ins else '', duration, values['notes'].strip())
         try:
             with self.db:
