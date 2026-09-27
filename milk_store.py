@@ -41,6 +41,9 @@ class MilkStore:
         if events:
             # A recorded dry-off proves milking immediately before that first boundary.
             return events[0]['kind']=='Kuruya ayrıldı' and day<events[0]['day']
+        if cow.get('_milking_estimated'):
+            from lactation import estimate_milking
+            return estimate_milking(cow|{'state':'Diğer'},date.fromisoformat(day))
         return cow['state']=='Sağmal'
 
     def save(self,cow,day,mode,morning='',evening='',daily='',today=None):

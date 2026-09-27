@@ -1,4 +1,4 @@
-__version__ = "0.13.1"
+__version__ = "0.13.2"
 
 from kivy.config import Config
 
@@ -151,7 +151,6 @@ class SuruApp(App):
         self.base.bind(pos=lambda w,p:setattr(background,'pos',p),size=lambda w,s:setattr(background,'size',s))
         self.current_id = self.editor = self.camera_popup = None
         self.closed = False
-        self.display_day = date.today()
         self.tab = 'herd'
         self.keyboard_inset = 0
         self.shell = FloatLayout()
@@ -169,6 +168,11 @@ class SuruApp(App):
         self.layout_keyboard()
         self.query, self.selection = '', 'Tüm hayvanlar'
         self.home()
+        from day_refresh import DayRefresh
+        self.day_refresh = DayRefresh(Clock,self.refresh_day,
+            lambda: self.closed or bool(self.popup_stack) or bool(self.editor),
+            on_error=lambda: Logger.exception('Surum: Gün yenilemesi yeniden denenecek'))
+        self.day_refresh.schedule()
         Clock.schedule_interval(self.tick,60)
         Window.bind(on_keyboard=self.keyboard)
         if platform == 'android': Clock.schedule_interval(self.poll_keyboard,.1)
@@ -206,9 +210,14 @@ class SuruApp(App):
             scroll.effect_y.trigger_velocity_update.cancel()
 
     def tick(self,*_):
-        if self.closed or self.editor or date.today() == self.display_day: return
-        self.display_day = date.today()
-        self.sync_reminders()
+        if self.closed: return
+        try:
+            self.day_refresh.check()
+        except Exception:
+            Logger.exception('Surum: Gün değişimi yenilenemedi; yeniden denenecek')
+
+    def refresh_day(self):
+        self.sync_reminders(force=True)
         scroll = next((w for w in self.base.children if isinstance(w,ScrollView)),None)
         position = scroll.scroll_y if scroll else 1
         if self.current_id is None:
@@ -340,7 +349,8 @@ class SuruApp(App):
         self.search.selection_color = (.25,.65,.43,.35)
         self.search.drag_to_scroll=True
         body.add_widget(self.search)
-        self.filter = Spinner(text=self.selection,values=('Tüm hayvanlar','Buzağılar','Danalar','Düveler','İnekler','Dişiler','Erkekler','Sağmallar','Gebeler','Kurular','Tohumlananlar','Tazeler','Yaklaşan / tarihi geçen doğumlar'),size_hint_y=None,height=dp(52),font_size=dp(14),background_normal='',background_color=GREEN,sync_height=True)
+        self.filter_keys=('Tüm hayvanlar','Buzağılar','Danalar','Düveler','İnekler','Dişiler','Erkekler','Sağmallar','Gebeler','Kurular','Tohumlananlar','Tazeler','Yaklaşan / tarihi geçen doğumlar')
+        self.filter = Spinner(text=self.selection,values=self.filter_keys,size_hint_y=None,height=dp(52),font_size=dp(14),background_normal='',background_color=GREEN,sync_height=True)
         self.filter.background_color=(0,0,0,0)
         self.filter.color=GREEN
         surface(self.filter,(.86,.94,.88,1),14)
@@ -354,7 +364,7 @@ class SuruApp(App):
         self.search.bind(focus=lambda w,focused:setattr(self.search_space,'height',0) if not focused else None)
         self.search.bind(text=lambda *_:self.refresh())
         self.search.bind(text=lambda *_:Clock.schedule_once(self.reveal_search,.05))
-        self.filter.bind(text=lambda *_:self.refresh())
+        self.filter.bind(text=self.filter_changed)
         self.refresh()
         self.sync_reminders()
 
@@ -416,10 +426,13 @@ class SuruApp(App):
             self.request_notifications(manual=True)
         actions.add_widget(button('Kaydet',save))
 
+    def filter_changed(self,*_):
+        self.refresh()
+
     def refresh(self):
         if self.current_id is not None: return
         cows = sections(self.herd.all(),'herd')[0][1]
-        self.query,self.selection = self.search.text,self.filter.text
+        self.query,self.selection = self.search.text,self.filter.text.split(' · ',1)[0]
         soon = lambda c: due_date(c) is not None and (due_date(c)-date.today()).days <= 30
         self.summary.text = f'{len(cows)} hayvan'
         fresh = fresh_ids(self.herd,cows,self.cycle['postpartum_days'])
@@ -431,20 +444,28 @@ class SuruApp(App):
             'Tazeler':lambda c:c['id'] in fresh,
             'Yaklaşan / tarihi geçen doğumlar':soon}
         for key,card in self.metrics.items(): card.value.text=str(sum(bool(predicates[key](c)) for c in cows))
+        predicates.update({'Tüm hayvanlar':lambda c:True,
+                           'Dişiler':lambda c:c['sex']=='Dişi',
+                           'Erkekler':lambda c:c['sex']=='Erkek'})
+        for key,kind in {'Buzağılar':'Buzağı','Danalar':'Dana','Düveler':'Düve','İnekler':'İnek'}.items():
+            predicates[key]=lambda c,kind=kind:category(c)==kind
+        choices={key:f'{key} · {sum(bool(predicates[key](c)) for c in cows)}' for key in self.filter_keys}
+        self.filter.unbind(text=self.filter_changed)
+        try:
+            self.filter.values=tuple(choices.values())
+            self.filter.text=choices.get(self.selection,choices['Tüm hayvanlar'])
+        finally:
+            self.filter.bind(text=self.filter_changed)
         self.cards.clear_widgets()
         rows = [c for c in cows if self.query.strip().casefold() in (c['tag']+' '+c['name']).casefold()]
-        if self.selection in ('Dişiler','Erkekler'):
-            rows = [c for c in rows if c['sex'] == ('Dişi' if self.selection=='Dişiler' else 'Erkek')]
-        elif self.selection in predicates: rows = [c for c in rows if predicates[self.selection](c)]
-        elif self.selection in ('Buzağılar','Danalar','Düveler','İnekler'):
-            expected={'Buzağılar':'Buzağı','Danalar':'Dana','Düveler':'Düve','İnekler':'İnek'}[self.selection]
-            rows=[c for c in rows if category(c)==expected]
+        if self.selection in predicates: rows = [c for c in rows if predicates[self.selection](c)]
         rows.sort(key=lambda c:(due_date(c) or date.max,c['tag']))
         if not rows: self.cards.add_widget(label('Sürünü oluşturmaya başla.\n+ Hayvan ekle' if not cows else 'Eşleşen hayvan bulunamadı.',90))
         for cow in rows:
             cycle=snapshot(cow,self.cycle)
             badges=[cycle['category']]
-            if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'): badges.append(cow['state'])
+            if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'):
+                badges.append('Sağmal (tahmini)' if cow.get('_milking_estimated') else cow['state'])
             if can_reproduce(cow) and cow['pregnant']: badges.append('Gebe')
             elif can_reproduce(cow) and cow['insemination']: badges.append('Tohumlandı')
             text=' · '.join(badges)+'\n'+(due_text(cow) if due_date(cow) else cycle['stage'])
@@ -657,6 +678,8 @@ class SuruApp(App):
             (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '')+
             (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else '')))
         identity.add_widget(label('Doğum · '+human(cow['born']),24,13))
+        if cow.get('_milking_estimated'):
+            identity.add_widget(paragraph('Sağmal · 24 ay üzeri olduğu için tahmini; son doğum tarihi gerekmez.'))
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
         edits=BoxLayout(size_hint_y=None,height=dp(44),spacing=dp(8))
         edits.add_widget(button('Düzenle',lambda *_:self.care(cow_id),44,variant='secondary'))
@@ -979,6 +1002,7 @@ class SuruApp(App):
 
     def on_stop(self):
         self.closed = True
+        if hasattr(self,'day_refresh'): self.day_refresh.stop()
         if self.camera_popup: self.camera_popup.dismiss()
         self.herd.close()
 

@@ -36,11 +36,16 @@ class CycleStore:
         cow['_loss_pending']=loss_id>resolved_id
         cow['last_birth']=self.db.execute("SELECT MAX(day) FROM events WHERE cow_id=? AND kind='Doğum yaptı'",(cow['id'],)).fetchone()[0] or ''
         cow['_cycle_marks']=[dict(r) for r in self.db.execute('SELECT * FROM cycle_marks WHERE cow_id=?',(cow['id'],))]
-        if cow['last_birth'] or (cow['calved_before']==-1 and cow['state'] in ('Sağmal','Kuru dönemde') and cow['sex']=='Dişi'):
+        has_calf=self.db.execute('SELECT 1 FROM cows WHERE mother_id=? LIMIT 1',(cow['id'],)).fetchone() is not None
+        if cow['last_birth'] or (cow['sex']=='Dişi' and (has_calf or
+                (cow['calved_before']==-1 and cow['state'] in ('Sağmal','Kuru dönemde')))):
             cow['calved_before']=1
         elif cow['calved_before']==-1 and cow['state'] in ('Düve','Buzağı'):
             cow['calved_before']=0
-        # Lactation follows confirmed calving, never a birthday or a due date.
+        from lactation import estimate_milking
+        cow['_milking_estimated']=estimate_milking(cow)
+        # The age fallback changes display/eligibility, not confirmed birth history.
+        if cow['_milking_estimated']: cow['state']='Sağmal'
         if cow['sex']=='Dişi' and cow['calved_before']==1 and cow['state'] not in ('Kuru dönemde','Sağılmıyor'):
             cow['state']='Sağmal'
         return cow

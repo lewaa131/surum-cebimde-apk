@@ -253,6 +253,9 @@ class Herd(CycleStore):
             raise ValueError('Bu durum yalnızca cinsiyeti dişi olarak doğrulanan hayvanlar için kullanılabilir.')
         if (cow['calved_before']==1 or cow['last_birth'] or self.children(cow_id)) and state in ('Düve','Buzağı'):
             raise ValueError('Doğum yapmış hayvan düve veya buzağı olamaz.')
+        if cow.get('_milking_estimated') and state=='Sağmal':
+            # Saving a name or note must not turn the age estimate into a fact.
+            state='Diğer'
         with self.db:
             self.db.execute('UPDATE cows SET name=?,state=?,notes=? WHERE id=?', (name.strip(),state,notes.strip(),cow_id))
             if state in ('Sağmal','Kuru dönemde','Düve','Buzağı'):
@@ -285,7 +288,9 @@ class Herd(CycleStore):
             raise ValueError('Gebelik süresini tam sayı olarak yazın.') from None
         if not 250 <= duration <= 310:
             raise ValueError('Hesaplama süresini 250–310 gün arasında girin.')
-        row = (tag, values['name'].strip(), born.isoformat(), values['state'], int(pregnant), ins.isoformat() if ins else '', duration, values['notes'].strip())
+        state=values['state']
+        if values.get('_milking_estimated') and state=='Sağmal': state='Diğer'
+        row = (tag, values['name'].strip(), born.isoformat(), state, int(pregnant), ins.isoformat() if ins else '', duration, values['notes'].strip())
         try:
             with self.db:
                 if cow_id is None:

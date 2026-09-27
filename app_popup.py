@@ -69,6 +69,9 @@ class AppPopup(Popup):
         app = App.get_running_app()
         if app and self in app.popup_stack:
             app.popup_stack.remove(self)
+        if app and hasattr(app,'tick'):
+            # Let editor cleanup finish before refreshing the underlying page.
+            Clock.schedule_once(app.tick,0)
         for widget in self.walk():
             if hasattr(widget, 'focus'): widget.focus = False
 

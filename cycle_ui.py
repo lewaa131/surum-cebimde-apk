@@ -164,15 +164,13 @@ def task_card(app,parent,task,identity=False):
 
 
 def today_view(app,parent):
-    tasks=tasks_for(app.herd.all(),app.cycle,upcoming=True)
-    due=[t for t in tasks if t['due']]
+    from lifecycle import task_window
+    due,upcoming,days=task_window(app.herd.all(),app.cycle)
     parent.add_widget(text(f'Bekleyen işler · {len(due)}',20,True))
     if not due: parent.add_widget(text('Bugün bekleyen iş yok.'))
     for task in due: task_card(app,parent,task,True)
-    days={'week':7,'fortnight':14,'month':30}[app.cycle['calendar_view']]
-    limit=(date.today()+timedelta(days=days)).isoformat()
-    upcoming=[t for t in tasks if not t['due'] and t['day']<=limit]
     parent.add_widget(text(f'Önümüzdeki {days} gün · {len(upcoming)}',18,True))
+    if not upcoming: parent.add_widget(text('Bu aralıkta planlanan iş yok.'))
     for task in upcoming:
         box=card(parent,task['cow']['name'] or task['cow']['tag'],task['title']+' · '+show_day(task['day']))
         box.add_widget(big_button('Hayvanı aç',lambda _,i=task['cow_id']:app.profile(i),44,'secondary'))
