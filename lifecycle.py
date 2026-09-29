@@ -54,7 +54,7 @@ def snapshot(cow, settings, today=None):
             if group=='İnek' and cow['state']=='Sağmal':
                 task('dry','Kuruya ayırma zamanı',due-timedelta(days=settings['dry_days']),cow['insemination'],
                      'Kuruya ayırdım','Sağımın sonlandırıldığını onayla.',settings['dry_enabled'],due)
-            task('birth','Buzağı doğdu mu?',due,cow['insemination'],'Doğdu',
+            task('birth','Tahmini doğum tarihi' if due>today else 'Buzağı doğdu mu?',due,cow['insemination'],'Doğdu',
                  'Doğduysa onayla; annenin yeni döngüsü başlasın.')
             if due<=today: result['stage']='Doğum kontrolü' if due==today else 'Doğum tarihi geçti'
         else: result['stage']='Gebe · tohumlama tarihi eksik'

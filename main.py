@@ -1,4 +1,4 @@
-__version__ = "0.13.5"
+__version__ = "0.13.7"
 
 from kivy.config import Config
 
@@ -38,7 +38,7 @@ from photos import import_photo, remove_unused_photo
 from registry import lookup, normalize_tag
 from reminders import AndroidReminders, reminder_plan, load_settings, save_settings, DEFAULT_SETTINGS
 from kivy.logger import Logger
-from mobile_ui import big_button, Identity, AnimalCard, surface, NavButton, MetricCard
+from mobile_ui import big_button, Identity, AnimalCard, surface, NavButton, NavIcon, MetricCard
 from dashboard import sections
 from farm_settings import load_farm, save_farm, fresh_ids
 from herd import card_status
@@ -321,24 +321,28 @@ class SuruApp(App):
         quick.add_widget(button('+  Hayvan ekle',lambda *_:self.add_animal(),48))
         from milk_ui import milk_screen
         quick.add_widget(button('Süt takibi',lambda *_:milk_screen(self),48,variant='secondary'))
-        body.add_widget(quick)
-        hero = BoxLayout(orientation='vertical',padding=dp(20),size_hint_y=None,height=dp(104))
-        surface(hero,(.04,.33,.22,1),22)
-        hero.add_widget(label('ÇİFTLİĞİM',24,12,(.69,.91,.75,1)))
-        self.summary = label('',48,25,(1,1,1,1)); self.summary.bold=True
-        hero.add_widget(self.summary)
+        hero = BoxLayout(padding=dp(16),size_hint_y=None,height=dp(90),spacing=dp(12))
+        surface(hero,(.04,.30,.22,1),20)
+        totals=BoxLayout(orientation='vertical')
+        totals.add_widget(label('ÇİFTLİĞİM',20,11,(.69,.91,.75,1)))
+        self.summary = label('',38,26,(1,1,1,1)); self.summary.bold=True
+        totals.add_widget(self.summary)
+        hero.add_widget(totals)
+        hero.add_widget(NavIcon('herd',tint=(.74,.94,.82,1),size_hint_x=None,width=dp(48)))
         body.add_widget(hero)
+        body.add_widget(quick)
         self.metrics = {}
         specs = [('Sağmallar','Sağmal','milk','mint'),('Gebeler','Gebe','birth','blue'),
-                 ('Kurular','Kuruda','dry','coral'),('Tohumlananlar','Tohumlandı','seed','violet'),
-                 ('Tazeler','Yeni doğuran','herd','mint'),('Yaklaşan / tarihi geçen doğumlar','Doğum takibi','special','coral')]
+                 ('Kurular','Kuruda','dry','coral'),('Danalar','Dana','young','violet'),
+                 ('Tazeler','Yeni doğuran','herd','mint'),('Buzağılar','Buzağı','calf','coral')]
         for offset in range(0,len(specs),3):
-            row = BoxLayout(size_hint_y=None,height=dp(114),spacing=dp(8))
+            row = BoxLayout(size_hint_y=None,height=dp(90),spacing=dp(8))
             for key,title,kind,tone in specs[offset:offset+3]:
                 card = MetricCard(title,0,kind,tone,lambda _,key=key:self.select_metric(key))
                 self.metrics[key]=card; row.add_widget(card)
             body.add_widget(row)
-        body.add_widget(label('İneklerim',36,22))
+        herd_title=label('İneklerim',30,19); herd_title.bold=True
+        body.add_widget(herd_title)
         self.search = TextInput(text=self.query,hint_text='İsim veya küpe ara',multiline=False,size_hint_y=None,height=dp(56),font_size=dp(17),padding=[dp(14),dp(15)])
         self.search.background_normal = self.search.background_active = ""
         # Keep the native TextInput canvas: a later surface Color can tint text.
@@ -443,12 +447,12 @@ class SuruApp(App):
             'Tohumlananlar':lambda c:can_reproduce(c) and bool(c['insemination']) and not c['pregnant'],
             'Tazeler':lambda c:c['id'] in fresh,
             'Yaklaşan / tarihi geçen doğumlar':soon}
-        for key,card in self.metrics.items(): card.value.text=str(sum(bool(predicates[key](c)) for c in cows))
         predicates.update({'Tüm hayvanlar':lambda c:True,
                            'Dişiler':lambda c:c['sex']=='Dişi',
                            'Erkekler':lambda c:c['sex']=='Erkek'})
         for key,kind in {'Buzağılar':'Buzağı','Danalar':'Dana','Düveler':'Düve','İnekler':'İnek'}.items():
             predicates[key]=lambda c,kind=kind:category(c)==kind
+        for key,card in self.metrics.items(): card.value.text=str(sum(bool(predicates[key](c)) for c in cows))
         choices={key:f'{key} · {sum(bool(predicates[key](c)) for c in cows)}' for key in self.filter_keys}
         self.filter.unbind(text=self.filter_changed)
         try:
@@ -683,7 +687,7 @@ class SuruApp(App):
         elif cow.get('_first_calving_pending'):
             identity.add_widget(paragraph('Genç yaşta tohumlandı; ilk doğum onayına kadar sağmal sayılmaz.'))
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
-        edits=BoxLayout(size_hint_y=None,height=dp(44),spacing=dp(8))
+        edits=BoxLayout(size_hint_y=None,height=dp(48),spacing=dp(8))
         edits.add_widget(button('Düzenle',lambda *_:self.care(cow_id),44,variant='secondary'))
         edits.add_widget(button('Fotoğraf',lambda *_:self.photo_options(cow_id),44,variant='secondary'))
         identity.add_widget(edits)
@@ -999,11 +1003,11 @@ class SuruApp(App):
                 self.android_bridge = install(self)
             except Exception:
                 Logger.exception('Surum: Güvenli ekran alanı uygulanamadı')
-        from update_ui import check_on_start
+        from update_ui import check_on_start, schedule_background
+        schedule_background()
         Clock.schedule_once(lambda _:check_on_start(self),4)
-        self.update_check_event=Clock.schedule_interval(lambda _:check_on_start(self),900)
-        if notification_plan(self.herd.all(),self.cycle):
-            Clock.schedule_once(lambda _:self.request_notifications(),1)
+        self.update_check_event=Clock.schedule_interval(lambda _:check_on_start(self),60)
+        Clock.schedule_once(lambda _:self.request_notifications(),1)
 
     def on_resume(self):
         self.backgrounded=False

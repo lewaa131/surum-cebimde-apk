@@ -33,14 +33,15 @@ class MilkStore:
 
     def can_enter(self,cow,day):
         if cow['sex']!='Dişi' or cow['record_status']!='Aktif' or cow['registry_status'] not in ('','Canlı'): return False
-        if cow['state']=='Sağılmıyor': return False
         events=self.db.execute("SELECT kind,day FROM events WHERE cow_id=? AND kind IN ('Doğum yaptı','Kuruya ayrıldı','Sağım başladı','Sağım durdu') ORDER BY day,id",(cow['id'],)).fetchall()
+        if cow['state']=='Sağılmıyor' and not any(r['kind']=='Sağım durdu' and r['day']>day for r in events): return False
         if cow['state']=='Kuru dönemde' and not any(r['kind']=='Kuruya ayrıldı' and r['day']>day for r in events): return False
         previous=[r for r in events if r['day']<=day]
         if previous: return previous[-1]['kind'] in ('Doğum yaptı','Sağım başladı')
         if events:
             # A recorded dry-off proves milking immediately before that first boundary.
-            return events[0]['kind']=='Kuruya ayrıldı' and day<events[0]['day']
+            ended=events[0]['kind']=='Kuruya ayrıldı' or (events[0]['kind']=='Sağım durdu' and cow.get('calved_before')==1)
+            return ended and day<events[0]['day']
         if cow.get('_milking_estimated'):
             from lactation import infer_lactation
             return infer_lactation(cow|{'state':'Diğer'},date.fromisoformat(day))['estimated']

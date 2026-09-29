@@ -21,9 +21,19 @@ class BackAction(PythonJavaClass):
             autoclass('org.surutakip.mobile.BackNavigation').background(self.host)
 
     def notification_intent(self, intent):
+        if intent and intent.getBooleanExtra('surum_open_update', False):
+            intent.removeExtra('surum_open_update')
+            Clock.schedule_once(self.open_update)
+            return
         if intent and intent.getBooleanExtra('surum_open_today', False):
             intent.removeExtra('surum_open_today')
             Clock.schedule_once(self.open_today)
+
+    def open_update(self, *_):
+        for popup in list(self.app.popup_stack):
+            popup.dismiss()
+        from update_ui import open_updates
+        Clock.schedule_once(lambda *_:open_updates(self.app) if not self.app.closed else None)
 
     def open_today(self, *_):
         for popup in list(self.app.popup_stack):

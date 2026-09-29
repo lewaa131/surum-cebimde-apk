@@ -8,8 +8,8 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.properties import BooleanProperty
 
-GREEN=(.06,.42,.27,1)
-INK=(.05,.25,.17,1)
+GREEN=(.07,.39,.29,1)
+INK=(.08,.20,.16,1)
 MUTED=(.40,.47,.44,1)
 
 
@@ -42,9 +42,9 @@ def surface(widget,color,radius=18):
     return tint
 
 def big_button(text,action,height=56,variant='primary'):
-    colors={'primary':GREEN,'secondary':(.86,.94,.88,1),'danger':(.98,.89,.88,1)}
+    colors={'primary':GREEN,'secondary':(.90,.95,.92,1),'danger':(.98,.89,.88,1)}
     base=colors[variant]
-    w=Button(text=text,size_hint_y=None,height=dp(max(48,height)),font_size=sp(16),
+    w=Button(text=text,size_hint_y=None,height=dp(max(48,height)),font_size=sp(15),
              bold=True,background_normal='',background_down='',background_color=(0,0,0,0))
     w.color=(1,1,1,1) if variant=='primary' else ((.68,.16,.14,1) if variant=='danger' else GREEN)
     tint=surface(w,base,14)
@@ -61,7 +61,7 @@ class Identity(BoxLayout):
     """İsim ve küpe ayrı sütunlardır; uzun isim küpeyi yerinden çıkarmaz."""
     def __init__(self,cow,**kwargs):
         super().__init__(orientation='vertical',spacing=dp(4),size_hint_y=None,**kwargs)
-        self.name_label=Label(text=cow.get('name','').strip() or 'Hayvanım',color=INK,bold=True,
+        self.name_label=Label(text=cow.get('name','').strip() or ('Küpe · '+cow['tag'][-4:]),color=INK,bold=True,
                               font_size=sp(18),size_hint_y=None,halign='left',valign='middle')
         self.tag_label=Label(text=cow['tag'],color=MUTED,font_size=sp(14),
                              size_hint_y=None,halign='left',valign='middle')
@@ -77,18 +77,23 @@ class Identity(BoxLayout):
 
 class AnimalCard(ButtonBehavior,BoxLayout):
     def __init__(self,cow,portrait,description,action,**kwargs):
-        super().__init__(orientation='vertical',spacing=dp(8),padding=dp(14),size_hint_y=None,**kwargs)
+        super().__init__(orientation='horizontal',spacing=dp(12),padding=dp(14),size_hint_y=None,**kwargs)
         surface(self,(1,1,1,1))
-        self.bind(minimum_height=self.setter('height'))
-        self.add_widget(Identity(cow))
-        row=BoxLayout(size_hint_y=None,height=dp(66),spacing=dp(14))
         if portrait is not None:
-            portrait.size_hint_x=.24
-            row.add_widget(portrait)
-        info=Label(text=description,color=INK,font_size=sp(13),halign='left',valign='middle')
-        info.bind(size=lambda w,s:setattr(w,'text_size',(s[0],None)))
-        info.bind(texture_size=lambda w,s:setattr(row,'height',max(dp(66),s[1]+dp(12))))
-        row.add_widget(info); self.add_widget(row)
+            portrait.size_hint=(None,None)
+            portrait.size=(dp(64),dp(78))
+            portrait.pos_hint={'center_y':.5}
+            self.add_widget(portrait)
+        details=BoxLayout(orientation='vertical',spacing=dp(5),size_hint_y=None,pos_hint={'center_y':.5})
+        details.bind(minimum_height=details.setter('height'))
+        details.add_widget(Identity(cow))
+        info=Label(text=description,color=MUTED,font_size=sp(12),halign='left',valign='middle',size_hint_y=None)
+        info.bind(width=lambda w,v:setattr(w,'text_size',(max(1,v),None)))
+        info.bind(texture_size=lambda w,s:setattr(w,'height',s[1]))
+        details.add_widget(info)
+        details.bind(height=lambda w,h:setattr(self,'height',max(dp(112),h+dp(28))))
+        self.add_widget(details)
+        self.height=dp(112)
         self.bind(on_release=action)
 
 
@@ -116,6 +121,20 @@ class NavIcon(Widget):
                 if self.kind=='birth':
                     line([(.5,.78),(.5,1)])
                     line([(.4,.9),(.6,.9)])
+            elif self.kind in ('young','calf'):
+                # Young cattle have wide ears and no adult horns.
+                if self.kind=='young':
+                    line([(.25,.74),(.75,.74),(.72,.3),(.6,.16),(.4,.16),(.28,.3)],True)
+                    line([(.25,.68),(.04,.73),(.12,.5),(.27,.52)],True)
+                    line([(.75,.68),(.96,.73),(.88,.5),(.73,.52)],True)
+                else:
+                    Line(ellipse=(x+.24*size,y+.15*size,.52*size,.59*size),width=dp(1.4))
+                    line([(.26,.6),(.04,.79),(.06,.49),(.25,.43)],True)
+                    line([(.74,.6),(.96,.79),(.94,.49),(.75,.43)],True)
+                    line([(.42,.76),(.5,.88),(.57,.76)])
+                for px in (.37,.59):
+                    Ellipse(pos=(x+px*size,y+.47*size),size=(size*.06,size*.06))
+                Line(ellipse=(x+.36*size,y+.22*size,.28*size,.14*size),width=dp(1.2))
             elif self.kind=='milk':
                 line([(.3,.15),(.7,.15),(.75,.63),(.25,.63)],True)
                 line([(.35,.63),(.35,.85),(.65,.85),(.65,.63)])
@@ -165,11 +184,12 @@ class MetricCard(ButtonBehavior, BoxLayout):
     """Compact counters with a quiet surface and colored icon badge."""
     def __init__(self,title,value,kind,tone,action,**kwargs):
         super().__init__(orientation='vertical',padding=dp(10),spacing=dp(4),
-                         size_hint_y=None,height=dp(114),**kwargs)
+                         size_hint_y=None,height=dp(90),**kwargs)
         bg,fg=PALETTES[tone]
-        tint=surface(self,(1,1,1,1),18)
+        resting=tuple(.55+c*.45 for c in bg[:3])+(1,)
+        tint=surface(self,resting,16)
         top=BoxLayout(spacing=dp(4))
-        self.value=Label(text=str(value),bold=True,color=INK,font_size=sp(27),halign='left')
+        self.value=Label(text=str(value),bold=True,color=INK,font_size=sp(25),halign='left')
         self.value.bind(size=lambda w,s:setattr(w,'text_size',s))
         top.add_widget(self.value)
         badge=BoxLayout(size_hint=(None,None),size=(dp(30),dp(32)),padding=dp(5),pos_hint={'center_y':.5})
@@ -177,8 +197,8 @@ class MetricCard(ButtonBehavior, BoxLayout):
         badge.add_widget(NavIcon(kind,tint=fg))
         top.add_widget(badge)
         self.add_widget(top)
-        caption=Label(text=title,color=MUTED,font_size=sp(12),size_hint_y=None,height=dp(36),halign='left',valign='middle')
+        caption=Label(text=title,color=fg,font_size=sp(11),size_hint_y=None,height=dp(26),halign='left',valign='middle')
         caption.bind(size=lambda w,s:setattr(w,'text_size',s))
         self.add_widget(caption)
-        self.bind(state=lambda w,state:setattr(tint,'rgba',bg if state=='down' else (1,1,1,1)))
+        self.bind(state=lambda w,state:setattr(tint,'rgba',bg if state=='down' else resting))
         self.bind(on_release=action)

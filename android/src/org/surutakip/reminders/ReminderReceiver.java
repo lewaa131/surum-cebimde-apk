@@ -148,8 +148,8 @@ public class ReminderReceiver extends BroadcastReceiver {
             builder.setContentIntent(PendingIntent.getActivity(c, 0, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         }
-        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title).setContentText(body)
+        org.surutakip.mobile.NotificationBrand.apply(c,builder);
+        builder.setContentTitle(title).setContentText(body)
             .setStyle(new Notification.BigTextStyle().bigText(body))
             .setAutoCancel(true).setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_REMINDER)

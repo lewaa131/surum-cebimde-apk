@@ -267,15 +267,20 @@ class Herd(CycleStore):
         cow = self.get(cow_id)
         if state not in STATES:
             raise ValueError('Geçerli bir durum seçin.')
-        if cow['sex'] != 'Dişi' and state in ('Sağmal','Kuru dönemde','Düve'):
+        if cow['sex'] != 'Dişi' and state in ('Sağmal','Kuru dönemde','Düve','Sağılmıyor'):
             raise ValueError('Bu durum yalnızca cinsiyeti dişi olarak doğrulanan hayvanlar için kullanılabilir.')
         if (cow['calved_before']==1 or cow['last_birth'] or self.children(cow_id)) and state in ('Düve','Buzağı'):
             raise ValueError('Doğum yapmış hayvan düve veya buzağı olamaz.')
         if cow.get('_milking_estimated') and state=='Sağmal': state='Diğer'
         with self.db:
             self.db.execute('UPDATE cows SET name=?,state=?,notes=? WHERE id=?', (name.strip(),state,notes.strip(),cow_id))
+            if state=='Sağılmıyor' and cow['calved_before']==1:
+                self.db.execute('UPDATE cows SET calved_before=1 WHERE id=?',(cow_id,))
             if state in ('Sağmal','Kuru dönemde','Düve','Buzağı'):
                 self.db.execute('UPDATE cows SET calved_before=? WHERE id=?',(int(state in ('Sağmal','Kuru dönemde')),cow_id))
+            if state != cow['state'] and state in ('Sağmal','Kuru dönemde','Sağılmıyor'):
+                kind={'Sağmal':'Sağım başladı','Kuru dönemde':'Kuruya ayrıldı','Sağılmıyor':'Sağım durdu'}[state]
+                self.db.execute('INSERT INTO events(cow_id,kind,day) VALUES (?,?,?)',(cow_id,kind,date.today().isoformat()))
 
     def save(self, values, cow_id=None, today=None):
         today = today or date.today()

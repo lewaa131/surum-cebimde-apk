@@ -8,15 +8,15 @@ package.domain = org.surutakip
 source.dir = .
 source.include_exts = py,kv,png,jpg,jpeg,atlas,json
 source.exclude_dirs = tools,tests,.venv,.buildenv,__pycache__,.git,.github
-version = 0.13.5
-android.numeric_version = 100013005
+version = 0.13.7
+android.numeric_version = 100013007
 
 # Python/Kivy dependencies bundled into the APK.
 requirements = python3,kivy==2.3.1,pillow,certifi
 
 # Android permissions actually used by the app.
 # Gallery uses ACTION_OPEN_DOCUMENT, so storage/media permission is not needed.
-android.permissions = INTERNET,CAMERA,POST_NOTIFICATIONS,RECEIVE_BOOT_COMPLETED,REQUEST_INSTALL_PACKAGES
+android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,POST_NOTIFICATIONS,RECEIVE_BOOT_COMPLETED,REQUEST_INSTALL_PACKAGES
 android.add_src = android/src
 p4a.hook = %(source.dir)s/android_hook.py
 orientation = portrait

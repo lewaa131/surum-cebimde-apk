@@ -49,6 +49,23 @@ class MilkTests(unittest.TestCase):
         self.day='2026-09-01'; self.save('daily',daily='10')
         self.store.delete(1,self.day)
         self.assertEqual(self.store.summary(self.day),(0,0,0))
+    def test_pause_preserves_past_milking_eligibility(self):
+        self.herd.set_milking(1,False,today=date(2026,9,10))
+        cow=self.herd.get(1)
+        self.assertTrue(self.store.can_enter(cow,'2026-09-09'))
+        self.assertFalse(self.store.can_enter(cow,'2026-09-10'))
+        self.assertFalse(self.store.can_enter(cow,'2026-09-11'))
+    def test_care_resume_records_boundary_for_milk(self):
+        self.herd.set_milking(1,False,today=date(2026,9,10))
+        self.herd.update_care(1,'Test','Sağmal','')
+        cow=self.herd.get(1)
+        self.assertTrue(self.store.can_enter(cow,date.today().isoformat()))
+        self.assertFalse(self.store.can_enter(cow,'2026-09-11'))
+    def test_care_pause_retains_previous_dates(self):
+        self.herd.update_care(1,'Test','Sağılmıyor','')
+        cow=self.herd.get(1)
+        self.assertTrue(self.store.can_enter(cow,'2026-09-01'))
+        self.assertFalse(self.store.can_enter(cow,date.today().isoformat()))
     def test_backup_and_animal_deletion(self):
         self.save(morning='10',evening='11')
         prefs=dict(zip(SETTINGS,(DEFAULT_FARM,DEFAULT_CYCLE,DEFAULT_SETTINGS)))

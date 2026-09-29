@@ -9,10 +9,33 @@ from update_prompt import should_offer, remind_later
 import time
 
 
+def native_updates():
+    from jnius import autoclass
+    return (autoclass('org.surutakip.mobile.UpdateJob'),
+            autoclass('org.kivy.android.PythonActivity').mActivity)
+
+
+def schedule_background():
+    if platform!='android': return
+    try:
+        bridge,activity=native_updates()
+        bridge.schedule(activity)
+    except Exception:
+        from kivy.logger import Logger
+        Logger.exception('Surum: Arka plan güncelleme kontrolü planlanamadı')
+
+
 def offer_pending(app,*_):
     app.update_offer_event=None
     result=getattr(app,'pending_update',None)
     if app.closed or not result: return
+    if platform=='android':
+        try:
+            bridge,activity=native_updates()
+            if bridge.deferred(activity,result['version']):
+                app.pending_update=None
+                return
+        except Exception: pass
     if not should_offer(app.user_data_dir,result['version']):
         app.pending_update=None
         return
@@ -32,6 +55,11 @@ def offer_pending(app,*_):
         if not accepted:
             try: remind_later(app.user_data_dir,result['version'])
             except OSError: pass
+            if platform=='android':
+                try:
+                    bridge,activity=native_updates()
+                    bridge.defer(activity,result['version'])
+                except Exception: pass
     popup.bind(on_dismiss=dismissed)
     def accept(*_):
         nonlocal accepted
@@ -51,7 +79,9 @@ def check_on_start(app):
     app.update_check_after=time.monotonic()+3600
     def worker():
         try: result=check(app.version)
-        except Exception: return  # Offline startup must remain usable.
+        except Exception:
+            app.update_check_after=time.monotonic()+60
+            return  # Retry soon after connectivity returns.
         finally: app.update_check_busy=False
         def ready(*_):
             if result and not app.closed:

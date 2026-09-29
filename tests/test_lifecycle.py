@@ -32,6 +32,16 @@ class LifecycleTests(unittest.TestCase):
     def kinds(self,i,day,upcoming=False):
         return {t['kind'] for t in tasks_for([self.herd.get(i)],self.settings,day,upcoming)}
 
+    def test_birth_wording_changes_only_when_due(self):
+        i=self.cow()
+        cow=self.herd.get(i)|dict(pregnant=1,insemination='2026-08-01',gestation_days=283)
+        due=due_date(cow)
+        for day,title in ((due-timedelta(days=1),'Tahmini doğum tarihi'),
+                          (due,'Buzağı doğdu mu?'),(due+timedelta(days=1),'Buzağı doğdu mu?')):
+            task=next(t for t in snapshot(cow,self.settings,day)['tasks'] if t['kind']=='birth')
+            self.assertEqual(task['title'],title)
+            self.assertEqual(task['day'],due.isoformat())
+
     def test_age_stages_and_birth_not_age_make_cow(self):
         i=self.cow()
         c=self.herd.get(i)

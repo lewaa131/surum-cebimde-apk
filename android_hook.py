@@ -5,6 +5,7 @@ This hook also runs for AAB because p4a shares its packaging path.
 """
 from pathlib import Path
 from copy import deepcopy
+import shutil
 import xml.etree.ElementTree as ET
 
 ANDROID = 'http://schemas.android.com/apk/res/android'
@@ -37,3 +38,8 @@ def after_apk_build(toolchain):
     patch_manifest(directory/'src'/'main'/'AndroidManifest.xml')
     legacy = directory/'AndroidManifest.xml'
     if legacy.exists(): patch_manifest(legacy)
+    resources=directory/'src'/'main'/'res'/'drawable'
+    resources.mkdir(parents=True,exist_ok=True)
+    source=Path(__file__).parent
+    shutil.copy2(source/'android/res/drawable/surum_notification.xml',resources/'surum_notification.xml')
+    shutil.copy2(source/'assets/icon.png',resources/'surum_brand.png')
