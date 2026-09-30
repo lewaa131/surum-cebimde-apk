@@ -209,7 +209,7 @@ def identity(app,cow_id):
 
 def profile_cycle(app,parent,cow,compact=False):
     status=snapshot(cow,app.cycle)
-    box=card(parent,'DÖNGÜ · '+status['category'],status['stage'])
+    box=card(parent,'Yaklaşan işler' if compact else 'DÖNGÜ · '+status['category'],status['stage'])
     if cow['mother_id'] and not compact:
         try: mother=app.herd.get(cow['mother_id'])
         except ValueError: mother=None

@@ -1,4 +1,4 @@
-__version__ = "0.13.7"
+__version__ = "0.13.8"
 
 from kivy.config import Config
 
@@ -38,7 +38,7 @@ from photos import import_photo, remove_unused_photo
 from registry import lookup, normalize_tag
 from reminders import AndroidReminders, reminder_plan, load_settings, save_settings, DEFAULT_SETTINGS
 from kivy.logger import Logger
-from mobile_ui import big_button, Identity, AnimalCard, surface, NavButton, NavIcon, MetricCard
+from mobile_ui import big_button, Identity, AnimalCard, surface, NavButton, NavIcon, MetricCard, MUTED
 from dashboard import sections
 from farm_settings import load_farm, save_farm, fresh_ids
 from herd import card_status
@@ -668,24 +668,32 @@ class SuruApp(App):
         self.base.clear_widgets(); self.base.add_widget(button('‹ Listeye dön',self.home,48,variant='secondary'))
         body = scroll_content(self.base)
         body.spacing = dp(12)
-        identity = BoxLayout(orientation='vertical',size_hint_y=None,padding=dp(12),spacing=dp(6))
+        identity = BoxLayout(orientation='vertical',size_hint_y=None,padding=dp(12),spacing=dp(3))
         identity.bind(minimum_height=identity.setter('height')); surface(identity,(1,1,1,1),18)
         body.add_widget(identity)
-        row=BoxLayout(size_hint_y=None,height=dp(88),spacing=dp(10))
+        row=BoxLayout(size_hint_y=None,height=dp(72),spacing=dp(10))
         portrait = self.portrait(cow)
         portrait.size_hint_x=None; portrait.width=dp(72); row.add_widget(portrait)
         names=Identity(cow); row.add_widget(names)
-        names.bind(height=lambda _,h:setattr(row,'height',max(dp(88),h)))
+        names.bind(height=lambda _,h:setattr(row,'height',max(dp(72),h)))
         identity.add_widget(row)
-        identity.add_widget(paragraph(cow['sex']+' · '+(cow['breed'] or 'Irk bilinmiyor')))
-        identity.add_widget(paragraph(category(cow)+' · '+age_text(date.fromisoformat(cow['born']))+
-            (' · '+cow['state'] if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor') else '')+
-            (' · Gebe' if cow['pregnant'] and can_reproduce(cow) else '')))
-        identity.add_widget(label('Doğum · '+human(cow['born']),24,13))
+        def identity_line(value):
+            item=paragraph(value); item.font_size=dp(13); item.color=MUTED
+            identity.add_widget(item)
+        identity_line(cow['sex']+' · '+(cow['breed'] or 'Irk bilinmiyor'))
+        identity_line(category(cow)+' · '+age_text(date.fromisoformat(cow['born']))+' · '+human(cow['born']))
+        states=[]
+        if cow['state'] in ('Sağmal','Kuru dönemde','Sağılmıyor'):
+            states.append('Sağmal (tahmini)' if cow.get('_milking_estimated') else cow['state'])
+        if cow['pregnant'] and can_reproduce(cow): states.append('Gebe')
+        elif cow['insemination'] and can_reproduce(cow): states.append('Tohumlandı')
+        if states:
+            state_line=paragraph(' · '.join(states)); state_line.bold=True; state_line.color=GREEN
+            identity.add_widget(state_line)
         if cow.get('_milking_estimated'):
-            identity.add_widget(paragraph('Sağmal tahmini · yaş ve tohumlama kaydına göre.'))
+            identity_line('Sağım durumu yaş ve tohumlamadan tahmin edildi.')
         elif cow.get('_first_calving_pending'):
-            identity.add_widget(paragraph('Genç yaşta tohumlandı; ilk doğum onayına kadar sağmal sayılmaz.'))
+            identity_line('İlk doğum onayına kadar sağmal sayılmaz.')
         if cow['record_status']!='Aktif': identity.add_widget(paragraph(cow['record_status']))
         edits=BoxLayout(size_hint_y=None,height=dp(48),spacing=dp(8))
         edits.add_widget(button('Düzenle',lambda *_:self.care(cow_id),44,variant='secondary'))
@@ -695,6 +703,7 @@ class SuruApp(App):
             from cycle_ui import identity as calf_identity
             identity.add_widget(button('Küpeyi tamamla' if cow['local_tag'] else 'Küpe / cinsiyet',lambda *_:calf_identity(self,cow_id),44,variant='secondary'))
         from milk_ui import milk_form, milk_history
+        actions_box=info_box(body,'Günlük işlemler')
         quick=BoxLayout(size_hint_y=None,height=dp(48),spacing=dp(8))
         if cow['state']=='Sağmal' and can_reproduce(cow):
             quick.add_widget(button('Süt gir',lambda *_:milk_form(self,cow_id,date.today().isoformat()),48))
@@ -702,16 +711,20 @@ class SuruApp(App):
             quick.add_widget(button('Süt geçmişi',lambda *_:milk_history(self,cow_id),48,variant='secondary'))
         if can_reproduce(cow):
             quick.add_widget(button('Gebelik kaydı' if cow['pregnant'] else 'Tohumlama',lambda *_:self.reproduction(cow_id),48,variant='secondary'))
-        body.add_widget(quick)
+        actions_box.add_widget(quick)
         from cycle_ui import profile_cycle
         if can_reproduce(cow):
             from cycle_ui import result, milking_status
             if cow['insemination'] and not cow['pregnant']:
-                body.add_widget(button('Tohumlama tuttu mu?',lambda *_:result(self,cow_id),48))
-            body.add_widget(button('Sağım durumu · değiştir',lambda *_:milking_status(self,cow_id),48,variant='secondary'))
+                actions_box.add_widget(button('Tohumlama tuttu mu?',lambda *_:result(self,cow_id),48))
+            actions_box.add_widget(button('Sağım durumu · değiştir',lambda *_:milking_status(self,cow_id),48,variant='secondary'))
         profile_cycle(self,body,cow,compact=True)
-
-        care = detail_page(body,'Bilgiler ve notlar')
+        records=info_box(body,'Kayıtlar')
+        record_row=BoxLayout(size_hint_y=None,height=dp(48),spacing=dp(8))
+        records.add_widget(record_row)
+        history_row=BoxLayout(size_hint_y=None,height=dp(48),spacing=dp(8))
+        records.add_widget(history_row)
+        care = detail_page(record_row,'Bilgiler / notlar')
         detail(care,'Cinsiyet · Irk',f'{cow["sex"]} · {cow["breed"] or "Irk bilinmiyor"}')
         detail(care,'Doğum tarihi',human(cow['born']))
         detail(care,'Tür',cow['species'] or 'Bilinmiyor')
@@ -724,7 +737,7 @@ class SuruApp(App):
             from cycle_ui import history as birth_history
             care.add_widget(button('Doğum geçmişi',lambda *_:birth_history(self,cow_id),variant='secondary'))
 
-        reproduction = detail_page(body,'Üreme kayıtları')
+        reproduction = detail_page(record_row,'Üreme')
         due = due_date(cow)
         if can_reproduce(cow):
             detail(reproduction,'Son tohumlama',human(cow['insemination']))
@@ -749,7 +762,7 @@ class SuruApp(App):
         self.notification_status = detail(reminders,'Bildirimler',self.reminder_state())
         reminders.add_widget(button('Bildirim ayarları',lambda *_:self.reminder_options(),variant='secondary'))
 
-        history_box = detail_page(body,'Geçmiş')
+        history_box = detail_page(history_row,'Geçmiş')
         history_box.add_widget(paragraph('Tohumlama geçmişi'))
         history = self.herd.history(cow_id)
         if not history:
@@ -781,7 +794,7 @@ class SuruApp(App):
             sync_button.disabled=True
             status.text='Resmi sorgu için önce buzağının TR küpesini ekle.'
 
-        manage = detail_page(body,'Kayıt işlemleri')
+        manage = detail_page(history_row,'Kayıt işlemleri')
         from correction_ui import undo_screen
         manage.add_widget(button('Yanlış işlemi geri al',lambda *_:undo_screen(self,cow_id),variant='secondary'))
         if cow['record_status']=='Aktif':

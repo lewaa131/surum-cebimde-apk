@@ -1,4 +1,7 @@
-Sürüm 0.13.7
+Sürüm 0.13.8
+
+Hayvan profili sadeleştirildi: kimlik bilgileri üstte, günlük işlemler ve yaklaşan işler ayrı kartlarda.
+Notlar, üreme, geçmiş ve kayıt işlemleri dört küçük düğmede toplandı.
 
 Ana ekran daha kompakt sayaçlar, yatay hayvan kartları ve sade yeşil düğmelerle yenilendi.
 Ana ekrandaki Dana ve Buzağı kartları ilgili hayvanları listeler.
