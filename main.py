@@ -1,4 +1,4 @@
-__version__ = "0.13.8"
+__version__ = "0.13.9"
 
 from kivy.config import Config
 
@@ -414,6 +414,7 @@ class SuruApp(App):
     def reminder_options(self):
         popup,body,error,actions = self.dialog('Bildirim ayarları')
         body.add_widget(paragraph('Gün aralıkları döngü ayarlarından alınır.'))
+        body.add_widget(paragraph('Her gün tek özet gelir; iş yoksa sürüne göz atman hatırlatılır.'))
         clock = self.field(body,'Bildirim saati',self.reminder_settings['time'])
         clock.hint_text = '09:00'
         def save(*_):

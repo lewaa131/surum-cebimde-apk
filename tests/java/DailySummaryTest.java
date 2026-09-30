@@ -33,6 +33,12 @@ public class DailySummaryTest {
         events.add(new Event("expired","heat","2026-09-01","2026-09-12","09:00"));
         check(DailySummary.due(events,now).size()==15,"Exclude duplicates, future and expired tasks");
         events.clear();
+        check(DailySummary.body(events).contains("Bugün planlı işin yok"),"Empty day message");
+        check(DailySummary.nextDaily(time("2026-09-12 08:00"),"","09:00")==now,"Empty plan still schedules morning");
+        check(!DailySummary.dailyDue(time("2026-09-12 08:59"),"","09:00"),"No early empty notification");
+        check(DailySummary.dailyDue(now,"","09:00"),"Empty morning eligible");
+        check(!DailySummary.dailyDue(now,"2026-09-12","09:00"),"No duplicate empty notification");
+        check(DailySummary.nextDaily(now,"2026-09-12","10:30")==time("2026-09-13 10:30"),"Selected clock persists tomorrow");
         check(DailySummary.next(events,now,"")==Long.MAX_VALUE,"No empty summary alarm");
         events.add(new Event("expires","heat","2026-09-12","2026-09-13","09:00"));
         check(DailySummary.next(events,now,"2026-09-12")==Long.MAX_VALUE,"Do not schedule expired tomorrow");

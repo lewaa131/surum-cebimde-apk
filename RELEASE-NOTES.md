@@ -1,4 +1,7 @@
-Sürüm 0.13.8
+Sürüm 0.13.9
+
+İş olmayan günlerde de seçilen bildirim saatinde günlük kontrol hatırlatması gelir.
+Varsayılan saat 09.00'dır; aynı gün ikinci özet gönderilmez.
 
 Hayvan profili sadeleştirildi: kimlik bilgileri üstte, günlük işlemler ve yaklaşan işler ayrı kartlarda.
 Notlar, üreme, geçmiş ve kayıt işlemleri dört küçük düğmede toplandı.

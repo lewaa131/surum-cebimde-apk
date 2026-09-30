@@ -44,6 +44,7 @@ public final class DailySummary {
         return next;
     }
     public static String body(List<Event> events) {
+        if(events.isEmpty()) return "Bugün planlı işin yok. Sürüne göz at.";
         Map<String,Integer> counts=new LinkedHashMap<>();
         for(Event e:events) {
             String label;
@@ -65,5 +66,13 @@ public final class DailySummary {
             body.append(entry.getValue()).append(" ").append(entry.getKey());
         }
         return body.append("\nAyrıntılar için Bugün ekranını aç.").toString();
+    }
+    public static long nextDaily(long now,String sentDay,String clock) throws Exception {
+        Calendar calendar=Calendar.getInstance(); calendar.setTimeInMillis(now);
+        if(day(now).equals(sentDay)) calendar.add(Calendar.DATE,1);
+        return Math.max(now+1000,at(day(calendar.getTimeInMillis()),clock));
+    }
+    public static boolean dailyDue(long now,String sentDay,String clock) throws Exception {
+        return !day(now).equals(sentDay) && now>=at(day(now),clock);
     }
 }

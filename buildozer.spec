@@ -8,8 +8,8 @@ package.domain = org.surutakip
 source.dir = .
 source.include_exts = py,kv,png,jpg,jpeg,atlas,json
 source.exclude_dirs = tools,tests,.venv,.buildenv,__pycache__,.git,.github
-version = 0.13.8
-android.numeric_version = 100013008
+version = 0.13.9
+android.numeric_version = 100013009
 
 # Python/Kivy dependencies bundled into the APK.
 requirements = python3,kivy==2.3.1,pillow,certifi

@@ -101,7 +101,8 @@ public class ReminderReceiver extends BroadcastReceiver {
         return calendar.getTimeInMillis();
     }
 
-    public static synchronized void replacePlan(Context context, String json) throws Exception {
+    public static synchronized void replacePlan(Context context, String json, String clock) throws Exception {
+        if (!clock.matches("(?:[01][0-9]|2[0-3]):[0-5][0-9]")) throw new IllegalArgumentException("Bildirim saati geçersiz");
         Context c = context.getApplicationContext();
         JSONArray next = new JSONArray(json);
         JSONArray previous = new JSONArray(prefs(c).getString("plan", "[]"));
@@ -109,7 +110,7 @@ public class ReminderReceiver extends BroadcastReceiver {
         for (int i = 0; i < next.length(); i++) active.add(next.getJSONObject(i).getString("key"));
         Set<String> delivered = new HashSet<>(prefs(c).getStringSet("delivered", new HashSet<String>()));
         delivered.retainAll(active);
-        if (!prefs(c).edit().putString("plan", json).putStringSet("delivered", delivered).commit())
+        if (!prefs(c).edit().putString("plan", json).putString("daily_time",clock).putStringSet("delivered", delivered).commit())
             throw new IllegalStateException("Hatırlatmalar kaydedilemedi.");
         // Remove visible notifications as well as future alarms for deleted/changed records.
         for (int i = 0; i < previous.length(); i++) {
@@ -132,7 +133,7 @@ public class ReminderReceiver extends BroadcastReceiver {
         if (!notificationsEnabled(c)) return;
         JSONArray plan = new JSONArray(prefs(c).getString("plan", "[]"));
         long now = System.currentTimeMillis();
-        long next = DailySummary.next(events(plan), now, prefs(c).getString("summary_day", ""));
+        long next = DailySummary.nextDaily(now, prefs(c).getString("summary_day", ""),prefs(c).getString("daily_time","09:00"));
         if (next != Long.MAX_VALUE)
             alarms(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
     }
@@ -163,12 +164,12 @@ public class ReminderReceiver extends BroadcastReceiver {
         String day = today();
         long now = System.currentTimeMillis();
         List<DailySummary.Event> due = DailySummary.due(events(plan), now);
-        if (!day.equals(prefs(c).getString("summary_day", "")) && !due.isEmpty()) {
+        if (DailySummary.dailyDue(now,prefs(c).getString("summary_day", ""),prefs(c).getString("daily_time","09:00"))) {
             // Persist before posting: repeated receivers/reboots cannot create a second daily alert.
             if (!prefs(c).edit().putString("summary_day", day).commit())
                 throw new IllegalStateException("Bildirim geçmişi kaydedilemedi.");
             manager(c).cancel(SUMMARY, 1);
-            notify(c, SUMMARY, "Bugün süründe " + due.size() + " iş var", DailySummary.body(due));
+            notify(c, SUMMARY, due.isEmpty() ? "Sürüm Cebimde · Günlük kontrol" : "Bugün süründe " + due.size() + " iş var", DailySummary.body(due));
         }
         scheduleNext(c);
     }

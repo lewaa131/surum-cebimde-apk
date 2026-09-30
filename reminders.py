@@ -72,10 +72,11 @@ class AndroidReminders:
         from lifecycle import notification_plan
         plan=notification_plan(cows,cycle,(settings or DEFAULT_SETTINGS)['time']) if cycle is not None else reminder_plan(cows,settings)
         payload = json.dumps(plan, ensure_ascii=False)
-        state = (payload, self.enabled())
+        clock=(settings or DEFAULT_SETTINGS)['time']
+        state = (payload, self.enabled(),clock)
         # Screen refreshes must not keep postponing an inexact alarm awaiting delivery.
         if force or state != self._last_sync:
-            self.bridge.replacePlan(self.activity, payload)
+            self.bridge.replacePlan(self.activity, payload,clock)
             self._last_sync = state
 
     def enabled(self):
